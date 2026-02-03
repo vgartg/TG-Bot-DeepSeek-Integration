@@ -6,22 +6,6 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-def save_telegram_file(file, file_name):
-    """Сохраняет файл из Telegram во временную папку"""
-    try:
-        # Создаем временный файл
-        temp_dir = tempfile.gettempdir()
-        file_path = os.path.join(temp_dir, file_name)
-
-        # Скачиваем файл
-        file.download(file_path)
-
-        logger.info(f"File saved to: {file_path}")
-        return file_path
-    except Exception as e:
-        logger.error(f"Error saving file: {e}")
-        return None
-
 def generate_qr_code(url, bot):
     """Генерирует QR-код для ссылки"""
     try:

@@ -5,11 +5,12 @@ from telegram.ext import (
     MessageHandler, filters, ContextTypes, ConversationHandler,
     PreCheckoutQueryHandler
 )
-from telegram.error import BadRequest
+from telegram.error import BadRequest, TimedOut
 import os
 from datetime import datetime, timedelta
 import traceback
 import json
+import tempfile
 
 from config import (
     BOT_TOKEN, WELCOME_MESSAGE, INSTRUCTION_TEXT, OFFER_TEXT, PRIVACY_TEXT,
@@ -18,7 +19,7 @@ from config import (
 from database import db
 from keyboards import *
 from deepseek_api import deepseek_api
-from utils import save_telegram_file, generate_qr_code, format_answer, check_file_type, get_file_size_mb
+from utils import generate_qr_code, format_answer, check_file_type, get_file_size_mb
 
 # Настройка логирования
 logging.basicConfig(
@@ -34,6 +35,40 @@ class LegalBot:
     def __init__(self):
         self.application = None
         self.user_states = {}  # Хранение состояний пользователей
+
+    async def safe_edit_message(self, query, text, reply_markup=None):
+        """Безопасное редактирование сообщения с обработкой ошибки 'Message is not modified'"""
+        try:
+            await query.edit_message_text(text=text, reply_markup=reply_markup)
+            return True
+        except BadRequest as e:
+            if "Message is not modified" in str(e):
+                # Сообщение уже имеет тот же контент, просто отвечаем на callback_query
+                await query.answer()
+                return False
+            elif "There is no text in the message to edit" in str(e):
+                # Нельзя редактировать сообщение без текста (например, фото с QR-кодом)
+                # Просто отвечаем на callback_query и отправляем новое сообщение
+                await query.answer()
+                await query.message.reply_text(text=text, reply_markup=reply_markup)
+                return False
+            else:
+                raise  # Другие ошибки пробрасываем дальше
+
+    async def safe_reply_photo(self, query, photo, caption, reply_markup=None):
+        """Безопасная отправка фото с обработкой кнопки назад"""
+        try:
+            await query.message.reply_photo(
+                photo=photo,
+                caption=caption,
+                reply_markup=reply_markup
+            )
+        except Exception as e:
+            logger.error(f"Error sending photo: {e}")
+            await query.message.reply_text(
+                caption,
+                reply_markup=reply_markup
+            )
 
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обработчик команды /start"""
@@ -73,42 +108,48 @@ class LegalBot:
         session.close()
 
         if query.data == 'main_menu':
-            await query.edit_message_text(
+            # Всегда отправляем новое сообщение для главного меню
+            await query.message.reply_text(
                 "Главное меню:",
                 reply_markup=get_main_menu()
             )
 
         elif query.data == 'menu_instruction':
-            await query.edit_message_text(
+            await self.safe_edit_message(
+                query,
                 "Инструкция по применению:",
-                reply_markup=get_instruction_menu()
+                reply_markup=get_instruction_view_menu()
             )
 
         elif query.data == 'show_instruction':
-            await query.edit_message_text(
+            await self.safe_edit_message(
+                query,
                 INSTRUCTION_TEXT,
                 reply_markup=get_instruction_menu()
             )
 
         elif query.data == 'menu_free':
             free_left = user_stats['free_requests_left'] if user_stats else 4
-            await query.edit_message_text(
+            await self.safe_edit_message(
+                query,
                 f"У вас осталось бесплатных вопросов: {free_left}\n\n"
                 f"Выберите тип вопроса:",
                 reply_markup=get_free_questions_menu(free_left)
             )
 
         elif query.data == 'menu_paid':
-            await query.edit_message_text(
+            await self.safe_edit_message(
+                query,
                 "Выберите тип платного вопроса:\n\n"
-                "📝 Ответ на вопрос - 100 руб.\n"
+                "⚡ Ответ на вопрос - 100 руб.\n"
                 "📎 Ответ с загрузкой документов - 200 руб.\n\n"
                 "После оплаты вы сможете сразу задать вопрос.",
                 reply_markup=get_paid_questions_menu()
             )
 
         elif query.data == 'menu_subscription':
-            await query.edit_message_text(
+            await self.safe_edit_message(
+                query,
                 "Выберите вариант подписки:\n\n"
                 "♾️ Безлимит на 2 недели - 1000 руб.\n"
                 "♾️ Безлимит на 1 месяц - 1500 руб.\n"
@@ -120,21 +161,21 @@ class LegalBot:
         elif query.data.startswith('sub_'):
             # Обработка выбора подписки - отправляем счет
             user_id = query.from_user.id
-            
+
             if query.data == 'sub_2weeks':
                 payload = 'subscription_2weeks'
                 title = "Подписка на 2 недели"
                 description = "Безлимитный доступ на 2 недели"
                 price = PRICES['subscription_2weeks']
                 prices = [LabeledPrice("Подписка на 2 недели", price)]
-                
+
             elif query.data == 'sub_1month':
                 payload = 'subscription_1month'
-                title = "Подписка на 1 месяц"
+                title = "Подпика на 1 месяц"
                 description = "Безлимитный доступ на 1 месяц"
                 price = PRICES['subscription_1month']
                 prices = [LabeledPrice("Подписка на 1 месяц", price)]
-                
+
             elif query.data == 'sub_3months':
                 payload = 'subscription_3months'
                 title = "Подписка на 3 месяца"
@@ -173,16 +214,16 @@ class LegalBot:
                     send_phone_number_to_provider=True,
                     provider_data=json.dumps(provider_data)
                 )
-                
+
                 # Отправляем сообщение с инструкцией для тестового режима
                 if PROVIDER_TOKEN.split(':')[1] == 'TEST':
                     await query.message.reply_text(
-                        "💳 Для оплаты используйте тестовые данные карты:\n"
+                        "🧪 Для оплаты используйте тестовые данные карты:\n"
                         "Номер: 1111 1111 1111 1026\n"
                         "Срок: 12/22\n"
                         "CVC: 000"
                     )
-                    
+
             except Exception as e:
                 logger.error(f"Error sending invoice: {e}\n{traceback.format_exc()}")
                 await query.message.reply_text(
@@ -190,88 +231,104 @@ class LegalBot:
                 )
 
         elif query.data == 'menu_offer':
-            await query.edit_message_text(
+            await self.safe_edit_message(
+                query,
                 "Оферта и политика конфиденциальности:",
-                reply_markup=get_offer_menu()
+                reply_markup=get_offer_view_menu()
             )
 
         elif query.data == 'show_offer':
-            await query.edit_message_text(
+            await self.safe_edit_message(
+                query,
                 OFFER_TEXT,
                 reply_markup=get_offer_menu()
             )
 
         elif query.data == 'show_privacy':
-            await query.edit_message_text(
+            await self.safe_edit_message(
+                query,
                 PRIVACY_TEXT,
-                reply_markup=get_offer_menu()
+                reply_markup=get_privacy_menu()
             )
 
         elif query.data == 'menu_share':
-            await query.edit_message_text(
+            await self.safe_edit_message(
+                query,
                 "Поделиться ботом с друзьями:",
-                reply_markup=get_share_menu()
+                reply_markup=get_share_initial_menu()
             )
 
         elif query.data == 'share_link':
             bot_username = context.bot.username
             share_url = f"https://t.me/{bot_username}"
-            await query.edit_message_text(
+            await self.safe_edit_message(
+                query,
                 f"Приглашайте друзей!\n\n"
                 f"Ссылка на бота: {share_url}\n\n"
                 f"Просто отправьте эту ссылку или нажмите на нее.",
-                reply_markup=get_share_menu()
+                reply_markup=get_share_after_link_menu()
             )
 
         elif query.data == 'share_qr':
             bot_username = context.bot.username
             share_url = f"https://t.me/{bot_username}"
 
+            # Сначала редактируем текущее сообщение
+            await self.safe_edit_message(
+                query,
+                "QR-код для приглашения друзей:",
+                reply_markup=get_share_after_qr_menu()
+            )
+
+            # Затем отправляем фото с QR-кодом
             qr_code = generate_qr_code(share_url, context.bot)
             if qr_code:
-                await query.message.reply_photo(
-                    photo=qr_code,
-                    caption="QR-код для приглашения друзей\n\nПросто отсканируйте этот код",
-                    reply_markup=get_share_menu()
+                await self.safe_reply_photo(
+                    query,
+                    qr_code,
+                    "Просто отсканируйте этот код",
+                    reply_markup=get_share_after_qr_menu()
                 )
             else:
-                await query.edit_message_text(
+                await query.message.reply_text(
                     "Не удалось сгенерировать QR-код.",
-                    reply_markup=get_share_menu()
+                    reply_markup=get_share_after_qr_menu()
                 )
 
         elif query.data in ['free_text', 'paid_text']:
             # Начало текстового вопроса
             is_free = query.data == 'free_text'
             user_id = query.from_user.id
-            
+
             # Проверяем доступ
             session = db.get_session()
             user_stats = db.get_user_stats(session, user_id)
             session.close()
-            
+
             if is_free:
                 # Бесплатный вопрос
                 if user_stats and user_stats['free_requests_left'] <= 0:
-                    await query.edit_message_text(
+                    await self.safe_edit_message(
+                        query,
                         "❌ У вас закончились бесплатные вопросы.\n\n"
                         "Перейдите в раздел 'Платные вопросы' или 'Подписка на безлимит'.",
                         reply_markup=get_main_menu()
                     )
                     return
-                
+
                 context.user_data['question_type'] = 'free'
                 context.user_data['waiting_for'] = 'text'
-                
-                await query.edit_message_text(
-                    "📝 Напишите ваш юридический вопрос:\n\n"
-                    "⚡ Режим deepthink включен, ответ может занять до 1-2 минут.\n"
-                    "⚡ Ответ будет сформирован с учетом актуального законодательства РФ.\n"
-                    "⚡ Поиск в интернете доступен через встроенные знания модели.",
+
+                await self.safe_edit_message(
+                    query,
+                    "⚡ Напишите ваш юридический вопрос:\n\n"
+                    "▫ Режим deepthink включен, ответ может занять до 1-2 минут.\n"
+                    "▫ Ответ будет сформирован с учетом актуального законодательства РФ.\n"
+                    "▫ Поиск в интернете доступен через встроенные знания модели.",
                     reply_markup=get_cancel_button()
                 )
                 return WAITING_QUESTION
-                
+
             else:
                 # Платный вопрос - отправляем счет
                 payload = 'question_text'
@@ -279,7 +336,7 @@ class LegalBot:
                 description = "Ответ на один юридический вопрос без документов"
                 price = PRICES['question_text']
                 prices = [LabeledPrice("Ответ на вопрос", price)]
-                
+
                 # Создаем provider_data для чека
                 provider_data = {
                     "receipt": {
@@ -298,9 +355,9 @@ class LegalBot:
                 }
 
                 try:
-                    # Сохраняем тип вопроса для послеоплатной обработки
+                    # Сохраняем тип вопроса для посленооплатной обработки
                     context.user_data['pending_question_type'] = 'paid_text'
-                    
+
                     await context.bot.send_invoice(
                         chat_id=user_id,
                         title=title,
@@ -313,16 +370,16 @@ class LegalBot:
                         send_phone_number_to_provider=True,
                         provider_data=json.dumps(provider_data)
                     )
-                    
+
                     # Инструкция для тестового режима
                     if PROVIDER_TOKEN.split(':')[1] == 'TEST':
                         await query.message.reply_text(
-                            "💳 Для оплаты используйте тестовые данные карты:\n"
+                            "🧪 Для оплаты используйте тестовые данные карты:\n"
                             "Номер: 1111 1111 1111 1026\n"
                             "Срок: 12/22\n"
                             "CVC: 000"
                         )
-                        
+
                 except Exception as e:
                     logger.error(f"Error sending invoice: {e}\n{traceback.format_exc()}")
                     await query.message.reply_text(
@@ -334,35 +391,38 @@ class LegalBot:
             # Начало вопроса с файлами
             is_free = query.data == 'free_file'
             user_id = query.from_user.id
-            
+
             # Проверяем доступ
             session = db.get_session()
             user_stats = db.get_user_stats(session, user_id)
             session.close()
-            
+
             if is_free:
                 # Бесплатный вопрос с файлами
                 if user_stats and user_stats['free_requests_left'] <= 0:
-                    await query.edit_message_text(
+                    await self.safe_edit_message(
+                        query,
                         "❌ У вас закончились бесплатные вопросы.\n\n"
                         "Перейдите в раздел 'Платные вопросы' или 'Подписка на безлимит'.",
                         reply_markup=get_main_menu()
                     )
                     return
-                
+
                 context.user_data['question_type'] = 'free'
                 context.user_data['waiting_for'] = 'file'
                 context.user_data['files'] = []
-                
-                await query.edit_message_text(
+                context.user_data['file_context'] = []  # Для хранения контекста анализа файлов
+
+                await self.safe_edit_message(
+                    query,
                     "📎 Отправьте файл (PDF, DOCX, TXT, JPG, PNG) и ваш вопрос:\n\n"
-                    "⚡ Максимальный размер файла: 20 МБ\n"
-                    "⚡ При загрузке файлов поиск в интернете отключается\n"
-                    "⚡ Можно отправить несколько файлов, затем написать вопрос",
+                    "▫ Максимальный размер файла: 20 МБ\n"
+                    "▫ При загрузке файлов поиск в интернете отключается\n"
+                    "▫ Можно отправить несколько файлов, затем написать вопрос",
                     reply_markup=get_cancel_button()
                 )
                 return WAITING_FILE_QUESTION
-                
+
             else:
                 # Платный вопрос с файлами - отправляем счет
                 payload = 'question_file'
@@ -370,7 +430,7 @@ class LegalBot:
                 description = "Ответ на один юридический вопрос с анализом документов"
                 price = PRICES['question_file']
                 prices = [LabeledPrice("Ответ с документами", price)]
-                
+
                 # Создаем provider_data для чека
                 provider_data = {
                     "receipt": {
@@ -389,9 +449,9 @@ class LegalBot:
                 }
 
                 try:
-                    # Сохраняем тип вопроса для послеоплатной обработки
+                    # Сохраняем тип вопроса для посленооплатной обработки
                     context.user_data['pending_question_type'] = 'paid_file'
-                    
+
                     await context.bot.send_invoice(
                         chat_id=user_id,
                         title=title,
@@ -404,16 +464,16 @@ class LegalBot:
                         send_phone_number_to_provider=True,
                         provider_data=json.dumps(provider_data)
                     )
-                    
+
                     # Инструкция для тестового режима
                     if PROVIDER_TOKEN.split(':')[1] == 'TEST':
                         await query.message.reply_text(
-                            "💳 Для оплаты используйте тестовые данные карты:\n"
+                            "🧪 Для оплаты используйте тестовые данные карты:\n"
                             "Номер: 1111 1111 1111 1026\n"
                             "Срок: 12/22\n"
                             "CVC: 000"
                         )
-                        
+
                 except Exception as e:
                     logger.error(f"Error sending invoice: {e}\n{traceback.format_exc()}")
                     await query.message.reply_text(
@@ -438,13 +498,13 @@ class LegalBot:
             payment = update.message.successful_payment
             user_id = update.effective_user.id
             payload = payment.invoice_payload
-            
+
             logger.info(f"Successful payment from user {user_id}, payload: {payload}, amount: {payment.total_amount / 100} {payment.currency}")
-            
+
             if payload.startswith('subscription_'):
                 # Активация подписки
                 session = db.get_session()
-                
+
                 if payload == 'subscription_2weeks':
                     subscription_type = '2weeks'
                     duration_days = 14
@@ -461,17 +521,17 @@ class LegalBot:
                     subscription_type = 'unknown'
                     duration_days = 0
                     duration_text = "неизвестный период"
-                
+
                 # Активируем подписку в БД
                 success = db.activate_subscription(session, user_id, subscription_type, duration_days)
                 session.close()
-                
+
                 if success:
                     await update.message.reply_text(
                         f"✅ Подписка успешно активирована!\n\n"
                         f"🎉 Теперь у вас безлимитный доступ.\n"
                         f"📅 Срок действия: {duration_text}\n"
-                        f"💰 Сумма оплаты: {payment.total_amount / 100} {payment.currency}\n\n"
+                        f"💵 Сумма оплаты: {payment.total_amount / 100} {payment.currency}\n\n"
                         f"Выберите действие:",
                         reply_markup=get_main_menu()
                     )
@@ -480,37 +540,38 @@ class LegalBot:
                         "❌ Ошибка при активации подписки. Пожалуйста, обратитесь в поддержку.",
                         reply_markup=get_main_menu()
                     )
-                    
+
             elif payload in ['question_text', 'question_file']:
                 # Оплата вопроса - переходим к ожиданию вопроса
                 if payload == 'question_text':
                     context.user_data['question_type'] = 'paid'
                     context.user_data['waiting_for'] = 'text'
-                    
+
                     await update.message.reply_text(
                         f"✅ Оплата прошла успешно!\n\n"
-                        f"💰 Сумма: {payment.total_amount / 100} {payment.currency}\n"
-                        f"📝 Теперь напишите ваш юридический вопрос:\n\n"
-                        f"⚡ Режим deepthink включен, ответ может занять до 1-2 минут.",
+                        f"💵 Сумма: {payment.total_amount / 100} {payment.currency}\n"
+                        f"⚡ Теперь напишите ваш юридический вопрос:\n\n"
+                        f"▫ Режим deepthink включен, ответ может занять до 1-2 минут.",
                         reply_markup=get_cancel_button()
                     )
                     return WAITING_QUESTION
-                    
+
                 elif payload == 'question_file':
                     context.user_data['question_type'] = 'paid'
                     context.user_data['waiting_for'] = 'file'
                     context.user_data['files'] = []
-                    
+                    context.user_data['file_context'] = []  # Для хранения контекста анализа файлов
+
                     await update.message.reply_text(
                         f"✅ Оплата прошла успешно!\n\n"
-                        f"💰 Сумма: {payment.total_amount / 100} {payment.currency}\n"
+                        f"💵 Сумма: {payment.total_amount / 100} {payment.currency}\n"
                         f"📎 Теперь отправьте файл (PDF, DOCX, TXT, JPG, PNG) и ваш вопрос:\n\n"
-                        f"⚡ Максимальный размер файла: 20 МБ\n"
-                        f"⚡ Можно отправить несколько файлов, затем написать вопрос",
+                        f"▫ Максимальный размер файла: 20 МБ\n"
+                        f"▫ Можно отправить несколько файлов, затем написать вопрос",
                         reply_markup=get_cancel_button()
                     )
                     return WAITING_FILE_QUESTION
-                    
+
         except Exception as e:
             logger.error(f"Error in successful_payment_callback: {e}\n{traceback.format_exc()}")
             await update.message.reply_text(
@@ -544,7 +605,7 @@ class LegalBot:
                     return ConversationHandler.END
 
         processing_msg = await update.message.reply_text(
-            "⚙️ Обрабатываю ваш вопрос...\n"
+            "🔍 Обрабатываю ваш вопрос...\n"
             "Это может занять до 1-2 минут (режим deepthink включен)."
         )
 
@@ -591,7 +652,7 @@ class LegalBot:
             session.close()
 
             free_left = user_stats['free_requests_left'] if user_stats else 0
-            
+
             if has_subscription:
                 await update.message.reply_text(
                     f"✅ Ответ сформирован!\n\n"
@@ -629,15 +690,20 @@ class LegalBot:
         """Обработка загруженного файла"""
         if 'files' not in context.user_data:
             context.user_data['files'] = []
+        if 'file_context' not in context.user_data:
+            context.user_data['file_context'] = []
 
         file = None
+        file_id = None
         file_name = ""
 
         if update.message.document:
             file = update.message.document
+            file_id = file.file_id
             file_name = file.file_name
         elif update.message.photo:
             file = update.message.photo[-1]
+            file_id = file.file_id
             file_name = "photo.jpg"
 
         if not file:
@@ -652,28 +718,63 @@ class LegalBot:
             )
             return WAITING_FILE_QUESTION
 
-        # Сохраняем файл
-        file_path = save_telegram_file(file, file_name)
-        if not file_path:
-            await update.message.reply_text("❌ Ошибка при загрузке файла")
+        try:
+            # Скачиваем файл
+            temp_dir = tempfile.gettempdir()
+            file_path = os.path.join(temp_dir, file_name)
+
+            # Получаем объект файла и скачиваем
+            tg_file = await context.bot.get_file(file_id)
+            await tg_file.download_to_drive(file_path)
+
+            # Проверяем размер
+            file_size_mb = get_file_size_mb(file_path)
+            if file_size_mb > 20:
+                await update.message.reply_text("❌ Файл слишком большой (максимум 20 МБ)")
+                os.remove(file_path)
+                return WAITING_FILE_QUESTION
+
+            context.user_data['files'].append(file_path)
+
+            # Анализируем файл и сохраняем контекст
+            analysis_msg = await update.message.reply_text(
+                f"🔍 Анализирую файл '{file_name}'...\n"
+                f"Это может занять несколько секунд."
+            )
+
+            # Шаг 1: Анализ файла без поиска
+            analysis_result = deepseek_api.process_query_with_files(
+                user_query=f"Проанализируй содержимое файла '{file_name}' и выдели ключевую информацию. "
+                          f"Обрати внимание на имена, фамилии, даты, суммы, адреса и другие важные детали.",
+                files=[file_path],
+                use_search=False,
+                use_deepthink=True
+            )
+
+            if 'error' in analysis_result:
+                await analysis_msg.edit_text(f"❌ Ошибка при анализе файла: {analysis_result['error']}")
+                os.remove(file_path)
+                return WAITING_FILE_QUESTION
+
+            # Сохраняем контекст анализа
+            context.user_data['file_context'].append({
+                'filename': file_name,
+                'analysis': analysis_result['answer'],
+                'tokens': analysis_result['tokens_used']
+            })
+
+            await analysis_msg.edit_text(
+                f"✅ Файл '{file_name}' проанализирован ({file_size_mb:.1f} МБ)\n"
+                f"Загружено файлов: {len(context.user_data['files'])}\n\n"
+                "Теперь напишите ваш вопрос к этим документам:"
+            )
+
             return WAITING_FILE_QUESTION
 
-        # Проверяем размер
-        file_size_mb = get_file_size_mb(file_path)
-        if file_size_mb > 20:
-            await update.message.reply_text("❌ Файл слишком большой (максимум 20 МБ)")
-            os.remove(file_path)
+        except Exception as e:
+            logger.error(f"Error downloading or analyzing file: {e}\n{traceback.format_exc()}")
+            await update.message.reply_text("❌ Ошибка при загрузке или анализе файла")
             return WAITING_FILE_QUESTION
-
-        context.user_data['files'].append(file_path)
-
-        await update.message.reply_text(
-            f"✅ Файл '{file_name}' загружен ({file_size_mb:.1f} МБ)\n"
-            f"Загружено файлов: {len(context.user_data['files'])}\n\n"
-            "Теперь напишите ваш вопрос к этим документам:"
-        )
-
-        return WAITING_FILE_QUESTION
 
     async def handle_file_question(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обработка вопроса с файлами"""
@@ -706,16 +807,28 @@ class LegalBot:
                     return ConversationHandler.END
 
         processing_msg = await update.message.reply_text(
-            "⚙️ Анализирую документы и обрабатываю вопрос...\n"
+            "🔍 Анализирую документы и обрабатываю вопрос...\n"
             "Это может занять несколько минут."
         )
 
         try:
-            # Отправляем запрос в DeepSeek с файлами
+            # Подготавливаем контекст из анализа файлов
+            file_context = ""
+            total_analysis_tokens = 0
+            for file_data in context.user_data.get('file_context', []):
+                file_context += f"\n\nАнализ файла '{file_data['filename']}':\n{file_data['analysis']}"
+                total_analysis_tokens += file_data['tokens']
+
+            # Шаг 2: Отправляем вопрос с поиском, используя контекст анализа файлов
+            if file_context:
+                full_query = f"Контекст из проанализированных документов:{file_context}\n\nВопрос пользователя: {question_text}"
+            else:
+                full_query = question_text
+
             result = deepseek_api.process_query(
-                user_query=question_text,
-                files=context.user_data['files'],
-                use_search=False,
+                user_query=full_query,
+                files=None,  # Файлы уже проанализированы, отправляем только текст
+                use_search=True,  # Включаем поиск для ответа на вопрос
                 use_deepthink=True
             )
 
@@ -731,12 +844,13 @@ class LegalBot:
 
             # Сохраняем запрос в БД
             files_info = str(len(context.user_data['files'])) + " файлов"
+            total_tokens = total_analysis_tokens + result['tokens_used']
             db.add_request(
                 session,
                 user_id,
                 question_text,
                 result['answer'],
-                result['tokens_used'],
+                total_tokens,
                 True,
                 files_info
             )
@@ -761,13 +875,13 @@ class LegalBot:
             session.close()
 
             free_left = user_stats['free_requests_left'] if user_stats else 0
-            
+
             if has_subscription:
                 await update.message.reply_text(
                     f"✅ Анализ документов завершен!\n\n"
                     f"📊 Статистика:\n"
                     f"• Проанализировано файлов: {len(context.user_data['files'])}\n"
-                    f"• Использовано токенов: {result['tokens_used']}\n"
+                    f"• Использовано токенов: {total_tokens}\n"
                     f"• У вас активна подписка\n\n"
                     f"Выберите дальнейшее действие:",
                     reply_markup=get_main_menu()
@@ -778,7 +892,7 @@ class LegalBot:
                     f"📊 Статистика:\n"
                     f"• Проанализировано файлов: {len(context.user_data['files'])}\n"
                     f"• Бесплатных вопросов осталось: {free_left}\n"
-                    f"• Использовано токенов: {result['tokens_used']}\n\n"
+                    f"• Использовано токенов: {total_tokens}\n\n"
                     f"Выберите дальнейшее действие:",
                     reply_markup=get_main_menu()
                 )
@@ -868,11 +982,11 @@ class LegalBot:
         self.application.add_handler(CommandHandler("start", self.start))
         self.application.add_handler(CallbackQueryHandler(self.handle_menu, pattern='^(?!free_text|free_file).*$'))
         self.application.add_handler(conv_handler)
-        
+
         # Обработчики платежей
         self.application.add_handler(PreCheckoutQueryHandler(self.pre_checkout_callback))
         self.application.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, self.successful_payment_callback))
-        
+
         # Обработчик неожиданных текстовых сообщений
         self.application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_unexpected_text))
 
