@@ -14,7 +14,7 @@ import tempfile
 
 from config import (
     BOT_TOKEN, WELCOME_MESSAGE, INSTRUCTION_TEXT, OFFER_TEXT, PRIVACY_TEXT,
-    PROVIDER_TOKEN, CURRENCY, PRICES
+    PROVIDER_TOKEN, CURRENCY, PRICES, RETURN_MONEY_TEXT
 )
 from database import db
 from keyboards import *
@@ -141,7 +141,7 @@ class LegalBot:
             await self.safe_edit_message(
                 query,
                 "Выберите тип платного вопроса:\n\n"
-                "⚡ Ответ на вопрос - 100 руб.\n"
+                "📝 Ответ на вопрос - 100 руб.\n"
                 "📎 Ответ с загрузкой документов - 200 руб.\n\n"
                 "После оплаты вы сможете сразу задать вопрос.",
                 reply_markup=get_paid_questions_menu()
@@ -151,9 +151,9 @@ class LegalBot:
             await self.safe_edit_message(
                 query,
                 "Выберите вариант подписки:\n\n"
-                "♾️ Безлимит на 2 недели - 1000 руб.\n"
-                "♾️ Безлимит на 1 месяц - 1500 руб.\n"
-                "♾️ Безлимит на 3 месяца - 3000 руб.\n\n"
+                "🔄 Безлимит на 2 недели - 1000 руб.\n"
+                "🔄 Безлимит на 1 месяц - 1500 руб.\n"
+                "🔄 Безлимит на 3 месяца - 3000 руб.\n\n"
                 "Подписка дает неограниченное количество запросов.",
                 reply_markup=get_subscription_menu()
             )
@@ -171,7 +171,7 @@ class LegalBot:
 
             elif query.data == 'sub_1month':
                 payload = 'subscription_1month'
-                title = "Подпика на 1 месяц"
+                title = "Подписка на 1 месяц"
                 description = "Безлимитный доступ на 1 месяц"
                 price = PRICES['subscription_1month']
                 prices = [LabeledPrice("Подписка на 1 месяц", price)]
@@ -218,7 +218,7 @@ class LegalBot:
                 # Отправляем сообщение с инструкцией для тестового режима
                 if PROVIDER_TOKEN.split(':')[1] == 'TEST':
                     await query.message.reply_text(
-                        "🧪 Для оплаты используйте тестовые данные карты:\n"
+                        "💳 Для оплаты используйте тестовые данные карты:\n"
                         "Номер: 1111 1111 1111 1026\n"
                         "Срок: 12/22\n"
                         "CVC: 000"
@@ -227,13 +227,13 @@ class LegalBot:
             except Exception as e:
                 logger.error(f"Error sending invoice: {e}\n{traceback.format_exc()}")
                 await query.message.reply_text(
-                    "❌ Произошла ошибка при создании счета. Пожалуйста, попробуйте позже."
+                    "❌ Оплата временно не доступна. Пожалуйста, попробуйте позже."
                 )
 
         elif query.data == 'menu_offer':
             await self.safe_edit_message(
                 query,
-                "Оферта и политика конфиденциальности:",
+                "Оферта, политика конфиденциальности и возврата средств:",
                 reply_markup=get_offer_view_menu()
             )
 
@@ -249,6 +249,13 @@ class LegalBot:
                 query,
                 PRIVACY_TEXT,
                 reply_markup=get_privacy_menu()
+            )
+
+        elif query.data == 'show_return_money':
+            await self.safe_edit_message(
+                query,
+                RETURN_MONEY_TEXT,
+                reply_markup=get_return_money_menu()
             )
 
         elif query.data == 'menu_share':
@@ -321,10 +328,10 @@ class LegalBot:
 
                 await self.safe_edit_message(
                     query,
-                    "⚡ Напишите ваш юридический вопрос:\n\n"
-                    "▫ Режим deepthink включен, ответ может занять до 1-2 минут.\n"
-                    "▫ Ответ будет сформирован с учетом актуального законодательства РФ.\n"
-                    "▫ Поиск в интернете доступен через встроенные знания модели.",
+                    "📝 Напишите ваш юридический вопрос:\n\n"
+                    "🔘 Режим deepthink включен, ответ может занять до 1-2 минут.\n"
+                    "🔘 Ответ будет сформирован с учетом актуального законодательства РФ.\n"
+                    "🔘 Поиск в интернете доступен через встроенные знания модели.",
                     reply_markup=get_cancel_button()
                 )
                 return WAITING_QUESTION
@@ -355,7 +362,7 @@ class LegalBot:
                 }
 
                 try:
-                    # Сохраняем тип вопроса для посленооплатной обработки
+                    # Сохраняем тип вопроса для последующей обработки
                     context.user_data['pending_question_type'] = 'paid_text'
 
                     await context.bot.send_invoice(
@@ -374,7 +381,7 @@ class LegalBot:
                     # Инструкция для тестового режима
                     if PROVIDER_TOKEN.split(':')[1] == 'TEST':
                         await query.message.reply_text(
-                            "🧪 Для оплаты используйте тестовые данные карты:\n"
+                            "💳 Для оплаты используйте тестовые данные карты:\n"
                             "Номер: 1111 1111 1111 1026\n"
                             "Срок: 12/22\n"
                             "CVC: 000"
@@ -383,7 +390,7 @@ class LegalBot:
                 except Exception as e:
                     logger.error(f"Error sending invoice: {e}\n{traceback.format_exc()}")
                     await query.message.reply_text(
-                        "❌ Произошла ошибка при создании счета. Пожалуйста, попробуйте позже.",
+                        "❌ Оплата временно не доступна. Пожалуйста, попробуйте позже.",
                         reply_markup=get_main_menu()
                     )
 
@@ -416,9 +423,9 @@ class LegalBot:
                 await self.safe_edit_message(
                     query,
                     "📎 Отправьте файл (PDF, DOCX, TXT, JPG, PNG) и ваш вопрос:\n\n"
-                    "▫ Максимальный размер файла: 20 МБ\n"
-                    "▫ При загрузке файлов поиск в интернете отключается\n"
-                    "▫ Можно отправить несколько файлов, затем написать вопрос",
+                    "🔘 Максимальный размер файла: 20 МБ\n"
+                    "🔘 При загрузке файлов поиск в интернете отключается\n"
+                    "🔘 Можно отправить несколько файлов, затем написать вопрос",
                     reply_markup=get_cancel_button()
                 )
                 return WAITING_FILE_QUESTION
@@ -449,7 +456,7 @@ class LegalBot:
                 }
 
                 try:
-                    # Сохраняем тип вопроса для посленооплатной обработки
+                    # Сохраняем тип вопроса для последующей обработки
                     context.user_data['pending_question_type'] = 'paid_file'
 
                     await context.bot.send_invoice(
@@ -468,7 +475,7 @@ class LegalBot:
                     # Инструкция для тестового режима
                     if PROVIDER_TOKEN.split(':')[1] == 'TEST':
                         await query.message.reply_text(
-                            "🧪 Для оплаты используйте тестовые данные карты:\n"
+                            "💳 Для оплаты используйте тестовые данные карты:\n"
                             "Номер: 1111 1111 1111 1026\n"
                             "Срок: 12/22\n"
                             "CVC: 000"
@@ -477,7 +484,7 @@ class LegalBot:
                 except Exception as e:
                     logger.error(f"Error sending invoice: {e}\n{traceback.format_exc()}")
                     await query.message.reply_text(
-                        "❌ Произошла ошибка при создании счета. Пожалуйста, попробуйте позже.",
+                        "❌ Оплата временно не доступна. Пожалуйста, попробуйте позже.",
                         reply_markup=get_main_menu()
                     )
 
@@ -531,7 +538,7 @@ class LegalBot:
                         f"✅ Подписка успешно активирована!\n\n"
                         f"🎉 Теперь у вас безлимитный доступ.\n"
                         f"📅 Срок действия: {duration_text}\n"
-                        f"💵 Сумма оплаты: {payment.total_amount / 100} {payment.currency}\n\n"
+                        f"💰 Сумма оплаты: {payment.total_amount / 100} {payment.currency}\n\n"
                         f"Выберите действие:",
                         reply_markup=get_main_menu()
                     )
@@ -549,9 +556,9 @@ class LegalBot:
 
                     await update.message.reply_text(
                         f"✅ Оплата прошла успешно!\n\n"
-                        f"💵 Сумма: {payment.total_amount / 100} {payment.currency}\n"
-                        f"⚡ Теперь напишите ваш юридический вопрос:\n\n"
-                        f"▫ Режим deepthink включен, ответ может занять до 1-2 минут.",
+                        f"💰 Сумма: {payment.total_amount / 100} {payment.currency}\n"
+                        f"📝 Теперь напишите ваш юридический вопрос:\n\n"
+                        f"🔘 Режим deepthink включен, ответ может занять до 1-2 минут.",
                         reply_markup=get_cancel_button()
                     )
                     return WAITING_QUESTION
@@ -564,10 +571,10 @@ class LegalBot:
 
                     await update.message.reply_text(
                         f"✅ Оплата прошла успешно!\n\n"
-                        f"💵 Сумма: {payment.total_amount / 100} {payment.currency}\n"
+                        f"💰 Сумма: {payment.total_amount / 100} {payment.currency}\n"
                         f"📎 Теперь отправьте файл (PDF, DOCX, TXT, JPG, PNG) и ваш вопрос:\n\n"
-                        f"▫ Максимальный размер файла: 20 МБ\n"
-                        f"▫ Можно отправить несколько файлов, затем написать вопрос",
+                        f"🔘 Максимальный размер файла: 20 МБ\n"
+                        f"🔘 Можно отправить несколько файлов, затем написать вопрос",
                         reply_markup=get_cancel_button()
                     )
                     return WAITING_FILE_QUESTION
@@ -605,7 +612,7 @@ class LegalBot:
                     return ConversationHandler.END
 
         processing_msg = await update.message.reply_text(
-            "🔍 Обрабатываю ваш вопрос...\n"
+            "🔄 Обрабатываю ваш вопрос...\n"
             "Это может занять до 1-2 минут (режим deepthink включен)."
         )
 
@@ -713,7 +720,7 @@ class LegalBot:
         # Проверяем тип файла
         if not check_file_type(file_name):
             await update.message.reply_text(
-                "❌ Неподдерживаемый тип файла.\n"
+                "📛 Неподдерживаемый тип файла.\n"
                 "Поддерживаемые форматы: PDF, DOCX, TXT, JPG, PNG"
             )
             return WAITING_FILE_QUESTION
@@ -730,7 +737,7 @@ class LegalBot:
             # Проверяем размер
             file_size_mb = get_file_size_mb(file_path)
             if file_size_mb > 20:
-                await update.message.reply_text("❌ Файл слишком большой (максимум 20 МБ)")
+                await update.message.reply_text("📛 Файл слишком большой (максимум 20 МБ)")
                 os.remove(file_path)
                 return WAITING_FILE_QUESTION
 
@@ -738,8 +745,8 @@ class LegalBot:
 
             # Анализируем файл и сохраняем контекст
             analysis_msg = await update.message.reply_text(
-                f"🔍 Анализирую файл '{file_name}'...\n"
-                f"Это может занять несколько секунд."
+                f"🔄 Анализирую файл '{file_name}'...\n"
+                f"Это может занять некоторое время в зависимости от размера файла."
             )
 
             # Шаг 1: Анализ файла
@@ -752,7 +759,7 @@ class LegalBot:
             )
 
             if 'error' in analysis_result:
-                await analysis_msg.edit_text(f"❌ Ошибка при анализе файла: {analysis_result['error']}")
+                await analysis_msg.edit_text(f"📛 Ошибка при анализе файла: {analysis_result['error']}")
                 # Удаляем временный файл
                 if os.path.exists(file_path):
                     os.remove(file_path)
@@ -766,7 +773,7 @@ class LegalBot:
             })
 
             await analysis_msg.edit_text(
-                f"✅ Файл '{file_name}' проанализирован ({file_size_mb:.1f} МБ)\n"
+                f"✅ Файл '{file_name}' проанализирован\n"
                 f"Загружено файлов: {len(context.user_data['files'])}\n\n"
                 "Теперь напишите ваш вопрос к этим документам:"
             )
@@ -775,7 +782,7 @@ class LegalBot:
 
         except Exception as e:
             logger.error(f"Error downloading or analyzing file: {e}\n{traceback.format_exc()}")
-            await update.message.reply_text("❌ Ошибка при загрузке или анализе файла")
+            await update.message.reply_text("📛 Ошибка при загрузке или анализе файла")
             return WAITING_FILE_QUESTION
 
     async def handle_file_question(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -798,7 +805,7 @@ class LegalBot:
             if question_type == 'free':
                 if user_stats and user_stats['free_requests_left'] <= 0:
                     await update.message.reply_text(
-                        "❌ У вас закончились бесплатные вопросы.\n\n"
+                        "📛 У вас закончились бесплатные вопросы.\n\n"
                         "Перейдите в раздел 'Платные вопросы' или 'Подписка на безлимит'.",
                         reply_markup=get_main_menu()
                     )
@@ -810,7 +817,7 @@ class LegalBot:
                     return ConversationHandler.END
 
         processing_msg = await update.message.reply_text(
-            "🔍 Анализирую документы и обрабатываю вопрос...\n"
+            "🔄 Анализирую документы и обрабатываю вопрос...\n"
             "Это может занять несколько минут."
         )
 
@@ -828,7 +835,7 @@ class LegalBot:
                 max_context_length = 8000  # Оставляем место для вопроса и system prompt
                 if len(file_context) > max_context_length:
                     file_context = file_context[:max_context_length] + "... [контекст сокращен]"
-                
+
                 # Добавляем инструкцию для модели
                 instruction = "ИСПОЛЬЗУЙ ТОЛЬКО ИНФОРМАЦИЮ ИЗ ПРЕДОСТАВЛЕННЫХ ДОКУМЕНТОВ. Если ответа нет в документах, так и скажи.\n\n"
                 full_query = f"{instruction}Контекст из проанализированных документов:{file_context}\n\nВопрос пользователя: {question_text}"
@@ -849,7 +856,7 @@ class LegalBot:
                     os.remove(file_path)
 
             if 'error' in result:
-                await processing_msg.edit_text(f"❌ Ошибка: {result['error']}")
+                await processing_msg.edit_text(f"📛 Ошибка: {result['error']}")
                 session.close()
                 return ConversationHandler.END
 
@@ -917,7 +924,7 @@ class LegalBot:
 
             try:
                 await processing_msg.edit_text(
-                    f"❌ Произошла ошибка при анализе документов:\n\n"
+                    f"📛 Произошла ошибка при анализе документов:\n\n"
                     f"Детали ошибки: {str(e)[:500]}\n\n"
                     f"Пожалуйста, попробуйте позже или обратитесь в поддержку."
                 )
@@ -1032,7 +1039,12 @@ class LegalBot:
 
         # Запускаем бота
         logger.info("Бот запущен...")
-        self.application.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
+        try:
+            self.application.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
+        except KeyboardInterrupt:
+            logger.info("Бот остановлен пользователем.")
+        except Exception as e:
+            logger.error(f"Ошибка при запуске бота: {e}")
 
 def main():
     """Основная функция запуска"""
