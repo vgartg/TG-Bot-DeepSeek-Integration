@@ -4,7 +4,7 @@ def get_main_menu():
     """Главное меню"""
     keyboard = [
         [InlineKeyboardButton("📋 Инструкция по применению", callback_data='menu_instruction')],
-        [InlineKeyboardButton("🎁 4 бесплатных вопроса", callback_data='menu_free')],
+        [InlineKeyboardButton("🎁 Бесплатные вопросы", callback_data='menu_free')],
         [InlineKeyboardButton("💵 Платные вопросы", callback_data='menu_paid')],
         [InlineKeyboardButton("♾️ Подписка на безлимит", callback_data='menu_subscription')],
         [InlineKeyboardButton("📄 Оферта", callback_data='menu_offer')],

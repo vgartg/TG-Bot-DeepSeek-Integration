@@ -6,6 +6,9 @@ from config import DEEPSEEK_API_KEY, DEEPSEEK_API_BASE, DEEPSEEK_MODEL, SYSTEM_P
 import base64
 import mimetypes
 import os
+import docx
+import PyPDF2
+import pdfplumber
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +20,49 @@ class DeepSeekAPI:
         )
         self.model = DEEPSEEK_MODEL
 
+    def extract_text_from_file(self, file_path: str) -> str:
+        """Извлекает текст из файла (PDF, DOCX, TXT)"""
+        try:
+            ext = os.path.splitext(file_path)[1].lower()
+            
+            if ext == '.txt':
+                with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    return f.read()
+            
+            elif ext == '.docx':
+                doc = docx.Document(file_path)
+                text = []
+                for paragraph in doc.paragraphs:
+                    if paragraph.text.strip():
+                        text.append(paragraph.text)
+                return '\n'.join(text)
+            
+            elif ext == '.pdf':
+                # Пробуем использовать pdfplumber для лучшего извлечения текста
+                text = []
+                try:
+                    with pdfplumber.open(file_path) as pdf:
+                        for page in pdf.pages:
+                            page_text = page.extract_text()
+                            if page_text:
+                                text.append(page_text)
+                except:
+                    # Если pdfplumber не сработал, пробуем PyPDF2
+                    with open(file_path, 'rb') as f:
+                        pdf_reader = PyPDF2.PdfReader(f)
+                        for page in pdf_reader.pages:
+                            page_text = page.extract_text()
+                            if page_text:
+                                text.append(page_text)
+                return '\n'.join(text)
+            
+            else:
+                return ""
+                
+        except Exception as e:
+            logger.error(f"Error extracting text from {file_path}: {e}")
+            return ""
+
     def process_query(self, user_query: str,
                      files: Optional[List[str]] = None,
                      use_search: bool = True,
@@ -24,7 +70,7 @@ class DeepSeekAPI:
         """Обрабатывает запрос пользователя"""
         try:
             # Формируем полное сообщение с system prompt
-            full_message = f"{SYSTEM_PROMPT}\n\nОтветь на следующий вопрос: {user_query}"
+            full_message = f"{SYSTEM_PROMPT}\n\nВопрос пользователя: {user_query}"
 
             # Подготавливаем сообщения
             messages = []
@@ -42,13 +88,21 @@ class DeepSeekAPI:
             # Добавляем файлы если есть
             if files and len(files) > 0:
                 file_contents = []
+                
+                # Добавляем текстовую часть запроса
+                file_contents.append({
+                    "type": "text",
+                    "text": full_message
+                })
+                
                 for file_path in files:
                     if os.path.exists(file_path):
                         mime_type = self.get_mime_type(file_path)
-                        base64_data = self.file_to_base64(file_path)
-
+                        file_name = os.path.basename(file_path)
+                        
                         if mime_type.startswith('image/'):
-                            # Для изображений
+                            # Для изображений используем base64
+                            base64_data = self.file_to_base64(file_path)
                             file_contents.append({
                                 "type": "image_url",
                                 "image_url": {
@@ -56,44 +110,29 @@ class DeepSeekAPI:
                                 }
                             })
                         else:
-                            # Для документов - пробуем читать как текст
-                            try:
-                                if file_path.lower().endswith('.txt'):
-                                    with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-                                        text_content = f.read()
-                                    file_contents.append({
-                                        "type": "text",
-                                        "text": f"Содержимое файла {os.path.basename(file_path)}:\n{text_content}"
-                                    })
-                                else:
-                                    # Для других форматов сообщаем о наличии файла
-                                    file_contents.append({
-                                        "type": "text",
-                                        "text": f"Приложен файл: {os.path.basename(file_path)} (формат: {mime_type})"
-                                    })
-                            except Exception as file_error:
-                                logger.error(f"Error reading file {file_path}: {file_error}")
+                            # Для документов извлекаем текст
+                            text_content = self.extract_text_from_file(file_path)
+                            if text_content:
+                                # Ограничиваем размер текста для избежания переполнения токенов
+                                max_text_length = 15000  # Примерный лимит
+                                if len(text_content) > max_text_length:
+                                    text_content = text_content[:max_text_length] + "... [текст сокращен]"
+                                
                                 file_contents.append({
                                     "type": "text",
-                                    "text": f"Приложен файл: {os.path.basename(file_path)}"
+                                    "text": f"Содержимое файла '{file_name}':\n{text_content}"
+                                })
+                            else:
+                                file_contents.append({
+                                    "type": "text",
+                                    "text": f"Файл '{file_name}' (формат: {mime_type}) - не удалось извлечь текст"
                                 })
 
-                if file_contents:
-                    # Добавляем текстовый запрос к файлам
-                    file_contents.insert(0, {
-                        "type": "text",
-                        "text": full_message
-                    })
-
-                    messages.append({
-                        "role": "user",
-                        "content": file_contents
-                    })
-                else:
-                    messages.append({
-                        "role": "user",
-                        "content": full_message
-                    })
+                messages.append({
+                    "role": "user",
+                    "content": file_contents
+                })
+                
             else:
                 messages.append({
                     "role": "user",
@@ -108,24 +147,22 @@ class DeepSeekAPI:
                 "temperature": 0.3,
             }
 
-            # Включаем поиск если нужно (только если API поддерживает)
-            # Не передаем web_search как параметр, так как он может вызывать ошибку
-            # Вместо этого добавим инструкцию в промпт
+            # Добавляем инструкцию для поиска если нужно
             if use_search:
-                search_note = "\n\nПРИМЕЧАНИЕ: Если необходимо, используй актуальную информацию из интернета для ответа, основываясь на своем обучении."
-                if len(messages) > 0 and messages[-1]["role"] == "user":
-                    if isinstance(messages[-1]["content"], str):
-                        messages[-1]["content"] += search_note
-                    elif isinstance(messages[-1]["content"], list):
-                        # Находим текстовую часть и добавляем примечание
-                        for item in messages[-1]["content"]:
-                            if item["type"] == "text":
-                                item["text"] += search_note
-                                break
+                # Ищем текстовую часть и добавляем инструкцию
+                for msg in messages:
+                    if msg["role"] == "user":
+                        if isinstance(msg["content"], str):
+                            msg["content"] += "\n\nПРИМЕЧАНИЕ: Если необходимо, используй актуальную информацию из интернета для ответа."
+                        elif isinstance(msg["content"], list):
+                            for item in msg["content"]:
+                                if item["type"] == "text":
+                                    item["text"] += "\n\nПРИМЕЧАНИЕ: Если необходимо, используй актуальную информацию из интернета для ответа."
+                                    break
 
-            logger.info(f"Sending request to DeepSeek with {len(messages)} messages")
+            logger.info(f"Отправка запроса в DeepSeek с {len(messages)} сообщениями")
             if files:
-                logger.info(f"Files attached: {len(files)}")
+                logger.info(f"Прикреплено файлов: {len(files)}")
 
             # Отправляем запрос
             response = self.client.chat.completions.create(**params)
@@ -150,10 +187,10 @@ class DeepSeekAPI:
                                 files: Optional[List[str]] = None,
                                 use_search: bool = True,
                                 use_deepthink: bool = True) -> dict:
-        """Обрабатывает запрос с файлами (отдельный метод для анализа файлов)"""
+        """Обрабатывает запрос с файлами (для анализа файлов)"""
         try:
-            # Для анализа файлов используем специальный prompt
-            analysis_prompt = """Ты юрист с 30-летним стажем. Проанализируй предоставленные документы и выдели ключевую информацию. 
+            # Специальный промпт для анализа файлов
+            analysis_prompt = """Ты юрист с 30-летним стажем. Проанализируй предоставленные документы и выдели ключевую информацию.
             Обрати внимание на:
             1. Имена и фамилии людей
             2. Даты и сроки
@@ -164,8 +201,8 @@ class DeepSeekAPI:
             7. Обязательства сторон
             8. Условия и ограничения
             
-            Предоставь краткий анализ каждого документа, выдели самую важную информацию."""
-            
+            Представь краткий анализ каждого документа, выдели самую важную информацию."""
+
             full_message = f"{analysis_prompt}\n\nЗадача: {user_query}"
 
             # Подготавливаем сообщения
@@ -181,13 +218,21 @@ class DeepSeekAPI:
             # Добавляем файлы если есть
             if files and len(files) > 0:
                 file_contents = []
+                
+                # Добавляем текстовую часть запроса
+                file_contents.append({
+                    "type": "text",
+                    "text": full_message
+                })
+                
                 for file_path in files:
                     if os.path.exists(file_path):
                         mime_type = self.get_mime_type(file_path)
-                        base64_data = self.file_to_base64(file_path)
-
+                        file_name = os.path.basename(file_path)
+                        
                         if mime_type.startswith('image/'):
-                            # Для изображений
+                            # Для изображений используем base64
+                            base64_data = self.file_to_base64(file_path)
                             file_contents.append({
                                 "type": "image_url",
                                 "image_url": {
@@ -195,61 +240,44 @@ class DeepSeekAPI:
                                 }
                             })
                         else:
-                            # Для документов - пробуем читать как текст
-                            try:
-                                if file_path.lower().endswith(('.txt', '.docx', '.pdf')):
-                                    # Для текстовых форматов просто указываем, что файл приложен
-                                    # DeepSeek сам умеет читать содержимое
-                                    file_contents.append({
-                                        "type": "text",
-                                        "text": f"Файл для анализа: {os.path.basename(file_path)} (формат: {mime_type})"
-                                    })
-                                else:
-                                    file_contents.append({
-                                        "type": "text",
-                                        "text": f"Файл для анализа: {os.path.basename(file_path)}"
-                                    })
-                            except Exception as file_error:
-                                logger.error(f"Error reading file {file_path}: {file_error}")
+                            # Для документов извлекаем текст
+                            text_content = self.extract_text_from_file(file_path)
+                            if text_content:
+                                # Ограничиваем размер текста
+                                max_text_length = 15000
+                                if len(text_content) > max_text_length:
+                                    text_content = text_content[:max_text_length] + "... [текст сокращен]"
+                                
                                 file_contents.append({
                                     "type": "text",
-                                    "text": f"Файл для анализа: {os.path.basename(file_path)}"
+                                    "text": f"Содержимое файла '{file_name}':\n{text_content}"
+                                })
+                            else:
+                                file_contents.append({
+                                    "type": "text",
+                                    "text": f"Файл '{file_name}' (формат: {mime_type})"
                                 })
 
-                if file_contents:
-                    # Добавляем текстовый запрос к файлам
-                    file_contents.insert(0, {
-                        "type": "text",
-                        "text": full_message
-                    })
-
-                    messages.append({
-                        "role": "user",
-                        "content": file_contents
-                    })
-                else:
-                    messages.append({
-                        "role": "user",
-                        "content": full_message
-                    })
+                messages.append({
+                    "role": "user",
+                    "content": file_contents
+                })
+                
             else:
                 messages.append({
                     "role": "user",
                     "content": full_message
                 })
 
-            # Настраиваем параметры запроса - НЕ используем web_search здесь!
+            # Настраиваем параметры запроса - НЕ используем web_search для анализа файлов
             params = {
                 "model": self.model,
                 "messages": messages,
-                "max_tokens": 2000,  # Меньше токенов для анализа
-                "temperature": 0.2,  # Более консервативный ответ
+                "max_tokens": 2000,
+                "temperature": 0.2,
             }
 
-            # УБИРАЕМ web_search, так как он вызывает ошибку в текущей версии API
-            # params["web_search"] = False
-
-            logger.info(f"Sending file analysis request to DeepSeek with {len(files)} files")
+            logger.info(f"Отправка запроса анализа файлов в DeepSeek с {len(files)} файлами")
 
             # Отправляем запрос
             response = self.client.chat.completions.create(**params)

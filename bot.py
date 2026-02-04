@@ -742,18 +742,20 @@ class LegalBot:
                 f"Это может занять несколько секунд."
             )
 
-            # Шаг 1: Анализ файла без поиска
+            # Шаг 1: Анализ файла
             analysis_result = deepseek_api.process_query_with_files(
                 user_query=f"Проанализируй содержимое файла '{file_name}' и выдели ключевую информацию. "
-                          f"Обрати внимание на имена, фамилии, даты, суммы, адреса и другие важные детали.",
+                        f"Обрати внимание на имена, фамилии, даты, суммы, адреса и другие важные детали.",
                 files=[file_path],
-                use_search=False,
+                use_search=False,  # Отключаем поиск для анализа файла
                 use_deepthink=True
             )
 
             if 'error' in analysis_result:
                 await analysis_msg.edit_text(f"❌ Ошибка при анализе файла: {analysis_result['error']}")
-                os.remove(file_path)
+                # Удаляем временный файл
+                if os.path.exists(file_path):
+                    os.remove(file_path)
                 return WAITING_FILE_QUESTION
 
             # Сохраняем контекст анализа
@@ -777,7 +779,7 @@ class LegalBot:
             return WAITING_FILE_QUESTION
 
     async def handle_file_question(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Обработка вопроса с файлами"""
+        """Обработка вопроса по файлам"""
         user_id = update.message.from_user.id
         question_text = update.message.text
 
@@ -796,7 +798,8 @@ class LegalBot:
             if question_type == 'free':
                 if user_stats and user_stats['free_requests_left'] <= 0:
                     await update.message.reply_text(
-                        "❌ У вас закончились бесплатные вопросы.",
+                        "❌ У вас закончились бесплатные вопросы.\n\n"
+                        "Перейдите в раздел 'Платные вопросы' или 'Подписка на безлимит'.",
                         reply_markup=get_main_menu()
                     )
                     # Удаляем временные файлы
@@ -819,12 +822,20 @@ class LegalBot:
                 file_context += f"\n\nАнализ файла '{file_data['filename']}':\n{file_data['analysis']}"
                 total_analysis_tokens += file_data['tokens']
 
-            # Шаг 2: Отправляем вопрос с поиском, используя контекст анализа файлов
+            # Формируем полный запрос с учетом ограничения Telegram на длину сообщения (4096 символов)
             if file_context:
-                full_query = f"Контекст из проанализированных документов:{file_context}\n\nВопрос пользователя: {question_text}"
+                # Ограничиваем общую длину контекста, чтобы не превысить лимиты API
+                max_context_length = 8000  # Оставляем место для вопроса и system prompt
+                if len(file_context) > max_context_length:
+                    file_context = file_context[:max_context_length] + "... [контекст сокращен]"
+                
+                # Добавляем инструкцию для модели
+                instruction = "ИСПОЛЬЗУЙ ТОЛЬКО ИНФОРМАЦИЮ ИЗ ПРЕДОСТАВЛЕННЫХ ДОКУМЕНТОВ. Если ответа нет в документах, так и скажи.\n\n"
+                full_query = f"{instruction}Контекст из проанализированных документов:{file_context}\n\nВопрос пользователя: {question_text}"
             else:
                 full_query = question_text
 
+            # Шаг 2: Отправляем вопрос с поиском, используя контекст анализа файлов
             result = deepseek_api.process_query(
                 user_query=full_query,
                 files=None,  # Файлы уже проанализированы, отправляем только текст
@@ -861,7 +872,7 @@ class LegalBot:
 
             session.close()
 
-            # Отправляем ответ
+            # Отправляем ответ частями с учетом ограничения Telegram (4096 символов)
             answer_parts = format_answer(result['answer'])
             for i, part in enumerate(answer_parts):
                 if i == 0:
