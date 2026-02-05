@@ -829,24 +829,32 @@ class LegalBot:
                 file_context += f"\n\nАнализ файла '{file_data['filename']}':\n{file_data['analysis']}"
                 total_analysis_tokens += file_data['tokens']
 
-            # Формируем полный запрос с учетом ограничения Telegram на длину сообщения (4096 символов)
+            # Формируем полный запрос
             if file_context:
-                # Ограничиваем общую длину контекста, чтобы не превысить лимиты API
-                max_context_length = 8000  # Оставляем место для вопроса и system prompt
+                # Ограничиваем общую длину контекста
+                max_context_length = 8000
                 if len(file_context) > max_context_length:
                     file_context = file_context[:max_context_length] + "... [контекст сокращен]"
 
-                # Добавляем инструкцию для модели
-                instruction = "ИСПОЛЬЗУЙ ТОЛЬКО ИНФОРМАЦИЮ ИЗ ПРЕДОСТАВЛЕННЫХ ДОКУМЕНТОВ. Если ответа нет в документах, так и скажи.\n\n"
-                full_query = f"{instruction}Контекст из проанализированных документов:{file_context}\n\nВопрос пользователя: {question_text}"
+                # ФОРМИРУЕМ ЗАПРОС С УЧЕТОМ ФАЙЛОВ
+                instruction = f"""Проанализируй предоставленные документы и ответь на вопрос пользователя. 
+                
+    Информация из проанализированных документов:
+    {file_context}
+
+    ВАЖНО: Используй информацию из предоставленных документов как основу для ответа. 
+    Если информации из документов недостаточно для полного ответа, дополни ответ актуальной информацией из интернета."""
+
+                full_query = f"{instruction}\n\nВопрос пользователя: {question_text}"
             else:
                 full_query = question_text
 
-            # Шаг 2: Отправляем вопрос с поиском, используя контекст анализа файлов
+            # Шаг 2: Отправляем вопрос с ПОИСКОМ, используя контекст анализа файлов
+            # ИЗМЕНЕНИЕ: use_search=True для финального ответа по файлам
             result = deepseek_api.process_query(
                 user_query=full_query,
                 files=None,  # Файлы уже проанализированы, отправляем только текст
-                use_search=True,  # Включаем поиск для ответа на вопрос
+                use_search=True,  # ВКЛЮЧАЕМ ПОИСК для ответа на вопрос по файлам
                 use_deepthink=True
             )
 
@@ -879,7 +887,7 @@ class LegalBot:
 
             session.close()
 
-            # Отправляем ответ частями с учетом ограничения Telegram (4096 символов)
+            # Отправляем ответ частями
             answer_parts = format_answer(result['answer'])
             for i, part in enumerate(answer_parts):
                 if i == 0:
@@ -900,7 +908,8 @@ class LegalBot:
                     f"📊 Статистика:\n"
                     f"• Проанализировано файлов: {len(context.user_data['files'])}\n"
                     f"• Использовано токенов: {total_tokens}\n"
-                    f"• У вас активна подписка\n\n"
+                    f"• У вас активна подписка\n"
+                    f"• Поиск в интернете: ВКЛЮЧЕН\n\n"
                     f"Выберите дальнейшее действие:",
                     reply_markup=get_main_menu()
                 )
@@ -910,7 +919,8 @@ class LegalBot:
                     f"📊 Статистика:\n"
                     f"• Проанализировано файлов: {len(context.user_data['files'])}\n"
                     f"• Бесплатных вопросов осталось: {free_left}\n"
-                    f"• Использовано токенов: {total_tokens}\n\n"
+                    f"• Использовано токенов: {total_tokens}\n"
+                    f"• Поиск в интернете: ВКЛЮЧЕН\n\n"
                     f"Выберите дальнейшее действие:",
                     reply_markup=get_main_menu()
                 )

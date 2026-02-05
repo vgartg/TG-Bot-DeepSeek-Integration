@@ -3,6 +3,7 @@ import tempfile
 import qrcode
 from io import BytesIO
 import logging
+from PIL import Image
 
 logger = logging.getLogger(__name__)
 
@@ -67,3 +68,31 @@ def get_file_size_mb(file_path):
         return os.path.getsize(file_path) / (1024 * 1024)
     except:
         return 0
+
+def resize_image_if_needed(file_path, max_size_mb=10):
+    """Изменяет размер изображения если оно слишком большое"""
+    try:
+        file_size_mb = get_file_size_mb(file_path)
+        if file_size_mb <= max_size_mb:
+            return file_path
+            
+        img = Image.open(file_path)
+        
+        # Если изображение слишком большое, уменьшаем его
+        max_dimension = 2000  # максимальная размерность
+        if img.width > max_dimension or img.height > max_dimension:
+            ratio = min(max_dimension / img.width, max_dimension / img.height)
+            new_width = int(img.width * ratio)
+            new_height = int(img.height * ratio)
+            img = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
+            
+            # Сохраняем с меньшим качеством
+            temp_path = tempfile.mktemp(suffix='.jpg')
+            img.save(temp_path, 'JPEG', quality=85)
+            
+            return temp_path
+        
+        return file_path
+    except Exception as e:
+        logger.error(f"Error resizing image: {e}")
+        return file_path
