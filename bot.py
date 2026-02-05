@@ -11,6 +11,8 @@ from datetime import datetime, timedelta
 import traceback
 import json
 import tempfile
+import asyncio
+import time
 
 from config import (
     BOT_TOKEN, WELCOME_MESSAGE, INSTRUCTION_TEXT, OFFER_TEXT, PRIVACY_TEXT,
@@ -48,7 +50,6 @@ class LegalBot:
                 return False
             elif "There is no text in the message to edit" in str(e):
                 # Нельзя редактировать сообщение без текста (например, фото с QR-кодом)
-                # Просто отвечаем на callback_query и отправляем новое сообщение
                 await query.answer()
                 await query.message.reply_text(text=text, reply_markup=reply_markup)
                 return False
@@ -88,14 +89,21 @@ class LegalBot:
         # Отправляем приветственное сообщение
         if update.message:
             await update.message.reply_text(
-                "Добро пожаловать в Скорую Юридическую Помощь!",
+                "Добро пожаловать в Скорою Юридическую Помощь!",
                 reply_markup=get_main_menu()
             )
         else:
             await update.callback_query.message.reply_text(
-                "Добро пожаловать в Скорую Юридическую Помощь!",
+                "Добро пожаловать в Скорою Юридическую Помощь!",
                 reply_markup=get_main_menu()
             )
+
+    async def menu_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Обработчик команды /menu"""
+        await update.message.reply_text(
+            "Главное меню:",
+            reply_markup=get_main_menu()
+        )
 
     async def handle_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обработчик меню"""
@@ -151,9 +159,9 @@ class LegalBot:
             await self.safe_edit_message(
                 query,
                 "Выберите вариант подписки:\n\n"
-                "🔄 Безлимит на 2 недели - 1000 руб.\n"
-                "🔄 Безлимит на 1 месяц - 1500 руб.\n"
-                "🔄 Безлимит на 3 месяца - 3000 руб.\n\n"
+                "📅 Безлимит на 2 недели - 1000 руб.\n"
+                "📅 Безлимит на 1 месяц - 1500 руб.\n"
+                "📅 Безлимит на 3 месяца - 3000 руб.\n\n"
                 "Подписка дает неограниченное количество запросов.",
                 reply_markup=get_subscription_menu()
             )
@@ -218,7 +226,7 @@ class LegalBot:
                 # Отправляем сообщение с инструкцией для тестового режима
                 if PROVIDER_TOKEN.split(':')[1] == 'TEST':
                     await query.message.reply_text(
-                        "💳 Для оплаты используйте тестовые данные карты:\n"
+                        "🔧 Для оплаты используйте тестовые данные карты:\n"
                         "Номер: 1111 1111 1111 1026\n"
                         "Срок: 12/22\n"
                         "CVC: 000"
@@ -381,7 +389,7 @@ class LegalBot:
                     # Инструкция для тестового режима
                     if PROVIDER_TOKEN.split(':')[1] == 'TEST':
                         await query.message.reply_text(
-                            "💳 Для оплаты используйте тестовые данные карты:\n"
+                            "🔧 Для оплаты используйте тестовые данные карты:\n"
                             "Номер: 1111 1111 1111 1026\n"
                             "Срок: 12/22\n"
                             "CVC: 000"
@@ -422,7 +430,7 @@ class LegalBot:
 
                 await self.safe_edit_message(
                     query,
-                    "📎 Отправьте файл (PDF, DOCX, TXT, JPG, PNG) и ваш вопрос:\n\n"
+                    "📎 Отправьте файл (PDF, DOCX, TXT) и ваш вопрос:\n\n"
                     "🔘 Максимальный размер файла: 20 МБ\n"
                     "🔘 При загрузке файлов поиск в интернете отключается\n"
                     "🔘 Можно отправить несколько файлов, затем написать вопрос",
@@ -475,7 +483,7 @@ class LegalBot:
                     # Инструкция для тестового режима
                     if PROVIDER_TOKEN.split(':')[1] == 'TEST':
                         await query.message.reply_text(
-                            "💳 Для оплаты используйте тестовые данные карты:\n"
+                            "🔧 Для оплаты используйте тестовые данные карты:\n"
                             "Номер: 1111 1111 1111 1026\n"
                             "Срок: 12/22\n"
                             "CVC: 000"
@@ -537,7 +545,7 @@ class LegalBot:
                     await update.message.reply_text(
                         f"✅ Подписка успешно активирована!\n\n"
                         f"🎉 Теперь у вас безлимитный доступ.\n"
-                        f"📅 Срок действия: {duration_text}\n"
+                        f"📆 Срок действия: {duration_text}\n"
                         f"💰 Сумма оплаты: {payment.total_amount / 100} {payment.currency}\n\n"
                         f"Выберите действие:",
                         reply_markup=get_main_menu()
@@ -572,9 +580,9 @@ class LegalBot:
                     await update.message.reply_text(
                         f"✅ Оплата прошла успешно!\n\n"
                         f"💰 Сумма: {payment.total_amount / 100} {payment.currency}\n"
-                        f"📎 Теперь отправьте файл (PDF, DOCX, TXT, JPG, PNG) и ваш вопрос:\n\n"
+                        f"📎 Теперь отправьте файл (PDF, DOCX, TXT) и ваш вопрос:\n\n"
                         f"🔘 Максимальный размер файла: 20 МБ\n"
-                        f"🔘 Можно отправить несколько файлов, затем написать вопрос",
+                        f"🔘 Можно отправить несколько файлов, затем задать вопрос",
                         reply_markup=get_cancel_button()
                     )
                     return WAITING_FILE_QUESTION
@@ -695,94 +703,149 @@ class LegalBot:
 
     async def handle_file(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обработка загруженного файла"""
+        # Инициализируем структуры данных
         if 'files' not in context.user_data:
             context.user_data['files'] = []
         if 'file_context' not in context.user_data:
             context.user_data['file_context'] = []
+        if 'file_ids' not in context.user_data:
+            context.user_data['file_ids'] = []
+        if 'file_texts' not in context.user_data:
+            context.user_data['file_texts'] = []
 
-        file = None
-        file_id = None
-        file_name = ""
-
-        if update.message.document:
-            file = update.message.document
-            file_id = file.file_id
-            file_name = file.file_name
-        elif update.message.photo:
-            file = update.message.photo[-1]
-            file_id = file.file_id
-            file_name = "photo.jpg"
-
-        if not file:
-            await update.message.reply_text("Пожалуйста, отправьте файл (PDF, DOCX, TXT, JPG, PNG)")
+        # Проверяем, что это документ (не фото и не голосовое)
+        if not update.message.document:
+            await update.message.reply_text(
+                "Пожалуйста, отправьте файл в формате PDF, DOCX или TXT"
+            )
             return WAITING_FILE_QUESTION
+
+        file = update.message.document
+        telegram_file_id = file.file_id
+        file_name = file.file_name or "document"
 
         # Проверяем тип файла
         if not check_file_type(file_name):
             await update.message.reply_text(
-                "📛 Неподдерживаемый тип файла.\n"
-                "Поддерживаемые форматы: PDF, DOCX, TXT, JPG, PNG"
+                "❌ Неподдерживаемый тип файла.\n"
+                "Поддерживаемые форматы: PDF, DOCX, TXT\n\n"
+                "Пожалуйста, отправьте файл в одном из этих форматов."
             )
             return WAITING_FILE_QUESTION
 
         try:
-            # Скачиваем файл
+            # Скачиваем файл от Telegram
             temp_dir = tempfile.gettempdir()
             file_path = os.path.join(temp_dir, file_name)
 
-            # Получаем объект файла и скачиваем
-            tg_file = await context.bot.get_file(file_id)
+            loading_msg = await update.message.reply_text(f"📥 Скачиваю файл '{file_name}'...")
+
+            # Скачиваем файл
+            tg_file = await context.bot.get_file(telegram_file_id)
             await tg_file.download_to_drive(file_path)
 
-            # Проверяем размер
+            # Проверяем размер файла
             file_size_mb = get_file_size_mb(file_path)
             if file_size_mb > 20:
-                await update.message.reply_text("📛 Файл слишком большой (максимум 20 МБ)")
+                await loading_msg.edit_text("❌ Файл слишком большой (максимум 20 МБ)")
                 os.remove(file_path)
                 return WAITING_FILE_QUESTION
 
+            # Сохраняем путь к файлу
             context.user_data['files'].append(file_path)
 
-            # Анализируем файл и сохраняем контекст
-            analysis_msg = await update.message.reply_text(
-                f"🔄 Анализирую файл '{file_name}'...\n"
-                f"Это может занять некоторое время в зависимости от размера файла."
-            )
+            await loading_msg.edit_text(f"📤 Загружаю файл в DeepSeek API...")
 
-            # Шаг 1: Анализ файла
-            analysis_result = deepseek_api.process_query_with_files(
-                user_query=f"Проанализируй содержимое файла '{file_name}' и выдели ключевую информацию. "
-                        f"Обрати внимание на имена, фамилии, даты, суммы, адреса и другие важные детали.",
-                files=[file_path],
-                use_search=False,  # Отключаем поиск для анализа файла
-                use_deepthink=True
-            )
+            # Пытаемся загрузить файл в DeepSeek API
+            deepseek_file_id = None
+            try:
+                deepseek_file_id = deepseek_api.upload_file_to_deepseek(file_path)
 
-            if 'error' in analysis_result:
-                await analysis_msg.edit_text(f"📛 Ошибка при анализе файла: {analysis_result['error']}")
-                # Удаляем временный файл
-                if os.path.exists(file_path):
-                    os.remove(file_path)
+                if deepseek_file_id:
+                    logger.info(f"Файл '{file_name}' загружен в DeepSeek, file_id: {deepseek_file_id}")
+                    context.user_data['file_ids'].append(deepseek_file_id)
+
+                    file_info = {
+                        'filename': file_name,
+                        'file_id': deepseek_file_id,
+                        'local_path': file_path,
+                        'method': 'deepseek_upload'
+                    }
+                    context.user_data['file_context'].append(file_info)
+                else:
+                    raise Exception("Не удалось получить file_id от DeepSeek")
+
+            except Exception as upload_error:
+                logger.error(f"Ошибка загрузки в DeepSeek: {upload_error}")
+                deepseek_file_id = None
+
+            # Если загрузка в DeepSeek не удалась, пробуем резервный метод
+            if not deepseek_file_id:
+                await loading_msg.edit_text(f"🔄 Пробую резервный метод для файла '{file_name}'...")
+
+                # Для текстовых файлов пробуем извлечь текст локально
+                try:
+                    ext = os.path.splitext(file_name)[1].lower()
+                    if ext in ['.txt', '.pdf', '.docx']:
+                        text, success = deepseek_api.extract_text_from_file(file_path)
+                        if success and text and len(text.strip()) > 50:
+                            context.user_data['file_texts'].append({
+                                'filename': file_name,
+                                'text': text[:10000],
+                                'size': len(text)
+                            })
+
+                            file_info = {
+                                'filename': file_name,
+                                'method': 'local_text_extraction',
+                                'text_length': len(text)
+                            }
+                            context.user_data['file_context'].append(file_info)
+
+                            await loading_msg.edit_text(
+                                f"✅ Файл '{file_name}' обработан локально\n"
+                                f"Извлечено текста: {len(text)} символов\n"
+                                f"Загружено файлов: {len(context.user_data['files'])}\n\n"
+                                "Теперь напишите ваш вопрос к этим документам:"
+                            )
+                            return WAITING_FILE_QUESTION
+                except Exception as extract_error:
+                    logger.error(f"Ошибка при локальном извлечении текста: {extract_error}")
+
+                # Если ничего не сработало, просто сообщаем о загрузке
+                await loading_msg.edit_text(
+                    f"⚠️ Файл '{file_name}' сохранен, но не удалось обработать.\n"
+                    f"Загружено файлов: {len(context.user_data['files'])}\n\n"
+                    "Вы можете продолжить загрузку файлов или задать вопрос."
+                )
                 return WAITING_FILE_QUESTION
 
-            # Сохраняем контекст анализа
-            context.user_data['file_context'].append({
-                'filename': file_name,
-                'analysis': analysis_result['answer'],
-                'tokens': analysis_result['tokens_used']
-            })
-
-            await analysis_msg.edit_text(
-                f"✅ Файл '{file_name}' проанализирован\n"
-                f"Загружено файлов: {len(context.user_data['files'])}\n\n"
+            # Если загрузка в DeepSeek удалась
+            await loading_msg.edit_text(
+                f"✅ Файл '{file_name}' успешно загружен в DeepSeek!\n"
+                f"Загружено файлов: {len(context.user_data['files'])}\n"
+                f"ID файла: {deepseek_file_id[:20]}...\n\n"
                 "Теперь напишите ваш вопрос к этим документам:"
             )
 
             return WAITING_FILE_QUESTION
 
         except Exception as e:
-            logger.error(f"Error downloading or analyzing file: {e}\n{traceback.format_exc()}")
-            await update.message.reply_text("📛 Ошибка при загрузке или анализе файла")
+            logger.error(f"Критическая ошибка в handle_file: {e}\n{traceback.format_exc()}")
+
+            try:
+                error_msg = await update.message.reply_text(
+                    f"❌ Произошла ошибка при обработке файла.\n"
+                    f"Ошибка: {str(e)[:200]}"
+                )
+
+                await asyncio.sleep(2)
+                await error_msg.edit_text(
+                    "Пожалуйста, попробуйте загрузить файл еще раз."
+                )
+            except:
+                pass
+
             return WAITING_FILE_QUESTION
 
     async def handle_file_question(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -793,6 +856,13 @@ class LegalBot:
         if 'files' not in context.user_data or not context.user_data['files']:
             await update.message.reply_text("Сначала загрузите файлы, затем задайте вопрос")
             return WAITING_FILE_QUESTION
+
+        # Проверяем, есть ли сохраненные тексты файлов
+        if 'file_texts' not in context.user_data or not context.user_data['file_texts']:
+            await update.message.reply_text(
+                "⚠️ Тексты файлов не были сохранены. Пожалуйста, загрузите файлы заново."
+            )
+            return ConversationHandler.END
 
         # Проверяем доступ
         session = db.get_session()
@@ -805,7 +875,7 @@ class LegalBot:
             if question_type == 'free':
                 if user_stats and user_stats['free_requests_left'] <= 0:
                     await update.message.reply_text(
-                        "📛 У вас закончились бесплатные вопросы.\n\n"
+                        "❌ У вас закончились бесплатные вопросы.\n\n"
                         "Перейдите в раздел 'Платные вопросы' или 'Подписка на безлимит'.",
                         reply_markup=get_main_menu()
                     )
@@ -817,44 +887,48 @@ class LegalBot:
                     return ConversationHandler.END
 
         processing_msg = await update.message.reply_text(
-            "🔄 Анализирую документы и обрабатываю вопрос...\n"
-            "Это может занять несколько минут."
+            "🔍 Анализирую документы и готовлю ответ...\n"
+            "Это может занять 1-2 минуты."
         )
 
         try:
-            # Подготавливаем контекст из анализа файлов
-            file_context = ""
-            total_analysis_tokens = 0
-            for file_data in context.user_data.get('file_context', []):
-                file_context += f"\n\nАнализ файла '{file_data['filename']}':\n{file_data['analysis']}"
-                total_analysis_tokens += file_data['tokens']
+            # ВАЖНО: Используем сохраненные тексты файлов
+            file_texts = context.user_data.get('file_texts', [])
 
-            # Формируем полный запрос
-            if file_context:
-                # Ограничиваем общую длину контекста
-                max_context_length = 8000
-                if len(file_context) > max_context_length:
-                    file_context = file_context[:max_context_length] + "... [контекст сокращен]"
+            if not file_texts:
+                await processing_msg.edit_text(
+                    "❌ Не удалось найти тексты загруженных файлов. "
+                    "Пожалуйста, загрузите файлы заново."
+                )
+                session.close()
+                return ConversationHandler.END
 
-                # ФОРМИРУЕМ ЗАПРОС С УЧЕТОМ ФАЙЛОВ
-                instruction = f"""Проанализируй предоставленные документы и ответь на вопрос пользователя. 
-                
-    Информация из проанализированных документов:
-    {file_context}
+            # Логируем, что передаем
+            total_text_length = sum(f['size'] for f in file_texts if 'size' in f)
+            logger.info(f"Передаю {len(file_texts)} файлов, общий объем текста: {total_text_length} символов")
 
-    ВАЖНО: Используй информацию из предоставленных документов как основу для ответа. 
-    Если информации из документов недостаточно для полного ответа, дополни ответ актуальной информацией из интернета."""
+            # Подготавливаем тексты файлов для отправки
+            prepared_file_texts = []
+            for file_data in file_texts:
+                filename = file_data['filename']
+                text = file_data['text']
 
-                full_query = f"{instruction}\n\nВопрос пользователя: {question_text}"
-            else:
-                full_query = question_text
+                # Ограничиваем размер каждого файла
+                max_per_file = 10000
+                if len(text) > max_per_file:
+                    half = max_per_file // 2
+                    text = text[:half] + "\n\n...[СРЕДНЯЯ ЧАСТЬ ТЕКСТА ПРОПУЩЕНА ИЗ-ЗА ОГРАНИЧЕНИЙ ДЛИНЫ]...\n\n" + text[-half:]
 
-            # Шаг 2: Отправляем вопрос с ПОИСКОМ, используя контекст анализа файлов
-            # ИЗМЕНЕНИЕ: use_search=True для финального ответа по файлам
+                prepared_file_texts.append({
+                    'filename': filename,
+                    'text': text
+                })
+
+            # Шаг 2: Отправляем запрос с поиском, передавая ТЕКСТЫ файлов
             result = deepseek_api.process_query(
-                user_query=full_query,
-                files=None,  # Файлы уже проанализированы, отправляем только текст
-                use_search=True,  # ВКЛЮЧАЕМ ПОИСК для ответа на вопрос по файлам
+                user_query=question_text,
+                file_texts=prepared_file_texts,
+                use_search=True,
                 use_deepthink=True
             )
 
@@ -864,13 +938,14 @@ class LegalBot:
                     os.remove(file_path)
 
             if 'error' in result:
-                await processing_msg.edit_text(f"📛 Ошибка: {result['error']}")
+                await processing_msg.edit_text(f"❌ Ошибка: {result['error']}")
                 session.close()
                 return ConversationHandler.END
 
             # Сохраняем запрос в БД
             files_info = str(len(context.user_data['files'])) + " файлов"
-            total_tokens = total_analysis_tokens + result['tokens_used']
+            total_tokens = result['tokens_used']
+
             db.add_request(
                 session,
                 user_id,
@@ -881,7 +956,7 @@ class LegalBot:
                 files_info
             )
 
-            # Списываем токен если нет подписки
+            # Списывание токена если нет подписки
             if not has_subscription and question_type == 'free':
                 db.update_user_tokens(session, user_id, 'free')
 
@@ -902,28 +977,23 @@ class LegalBot:
 
             free_left = user_stats['free_requests_left'] if user_stats else 0
 
+            # Отправляем итоговое сообщение со статистикой
+            stats_text = f"✅ Анализ завершен!\n\n📊 Статистика:\n"
+            stats_text += f"• Обработано файлов: {len(file_texts)}\n"
+            stats_text += f"• Общий объем текста: {total_text_length} символов\n"
+
             if has_subscription:
-                await update.message.reply_text(
-                    f"✅ Анализ документов завершен!\n\n"
-                    f"📊 Статистика:\n"
-                    f"• Проанализировано файлов: {len(context.user_data['files'])}\n"
-                    f"• Использовано токенов: {total_tokens}\n"
-                    f"• У вас активна подписка\n"
-                    f"• Поиск в интернете: ВКЛЮЧЕН\n\n"
-                    f"Выберите дальнейшее действие:",
-                    reply_markup=get_main_menu()
-                )
+                stats_text += f"• У вас активна подписка\n"
             else:
-                await update.message.reply_text(
-                    f"✅ Анализ документов завершен!\n\n"
-                    f"📊 Статистика:\n"
-                    f"• Проанализировано файлов: {len(context.user_data['files'])}\n"
-                    f"• Бесплатных вопросов осталось: {free_left}\n"
-                    f"• Использовано токенов: {total_tokens}\n"
-                    f"• Поиск в интернете: ВКЛЮЧЕН\n\n"
-                    f"Выберите дальнейшее действие:",
-                    reply_markup=get_main_menu()
-                )
+                stats_text += f"• Бесплатных вопросов осталось: {free_left}\n"
+
+            stats_text += f"• Использовано токенов: {total_tokens}\n\n"
+            stats_text += "Выберите дальнейшее действие:"
+
+            await update.message.reply_text(
+                stats_text,
+                reply_markup=get_main_menu()
+            )
 
         except Exception as e:
             logger.error(f"Error processing file question: {e}\n{traceback.format_exc()}")
@@ -934,9 +1004,9 @@ class LegalBot:
 
             try:
                 await processing_msg.edit_text(
-                    f"📛 Произошла ошибка при анализе документов:\n\n"
-                    f"Детали ошибки: {str(e)[:500]}\n\n"
-                    f"Пожалуйста, попробуйте позже или обратитесь в поддержку."
+                    f"❌ Произошла ошибка при анализе документов:\n\n"
+                    f"Детали: {str(e)[:300]}\n\n"
+                    f"Пожалуйста, попробуйте позже."
                 )
             except:
                 pass
@@ -982,6 +1052,30 @@ class LegalBot:
             except:
                 pass
 
+    async def handle_voice(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Обработка голосовых сообщений"""
+        await update.message.reply_text(
+            "🎤 Мы ещё не умеем отвечать на голосовые сообщения.\n\n"
+            "Пожалуйста, воспользуйтесь кнопками из меню или напишите текст.",
+            reply_markup=get_main_menu()
+        )
+
+    async def handle_photo(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Обработка фотографий"""
+        await update.message.reply_text(
+            "📸 Фотографии не поддерживаются.\n\n"
+            "Пожалуйста, отправьте файл в формате PDF, DOCX или TXT.",
+            reply_markup=get_main_menu()
+        )
+
+    async def handle_unsupported_media(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Обработка неподдерживаемых типов медиа"""
+        await update.message.reply_text(
+            "📁 Этот тип медиа не поддерживается.\n\n"
+            "Пожалуйста, отправьте текстовое сообщение или файл в формате PDF, DOCX, TXT.",
+            reply_markup=get_main_menu()
+        )
+
     def setup_handlers(self):
         """Настройка обработчиков"""
         # Conversation handler для вопросов
@@ -995,7 +1089,7 @@ class LegalBot:
                     CallbackQueryHandler(self.cancel, pattern='^main_menu$')
                 ],
                 WAITING_FILE_QUESTION: [
-                    MessageHandler(filters.Document.ALL | filters.PHOTO, self.handle_file),
+                    MessageHandler(filters.Document.ALL, self.handle_file),
                     MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_file_question),
                     CallbackQueryHandler(self.cancel, pattern='^main_menu$')
                 ]
@@ -1008,12 +1102,22 @@ class LegalBot:
 
         # Регистрируем обработчики
         self.application.add_handler(CommandHandler("start", self.start))
+        self.application.add_handler(CommandHandler("menu", self.menu_command))
         self.application.add_handler(CallbackQueryHandler(self.handle_menu, pattern='^(?!free_text|free_file).*$'))
         self.application.add_handler(conv_handler)
 
         # Обработчики платежей
         self.application.add_handler(PreCheckoutQueryHandler(self.pre_checkout_callback))
         self.application.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, self.successful_payment_callback))
+
+        # Обработчики медиа
+        self.application.add_handler(MessageHandler(filters.VOICE, self.handle_voice))
+        self.application.add_handler(MessageHandler(filters.PHOTO, self.handle_photo))
+        
+        # Общий обработчик для других неподдерживаемых медиа
+        unsupported_media_filters = (filters.VIDEO | filters.AUDIO | 
+                                   filters.VIDEO_NOTE | filters.ANIMATION)
+        self.application.add_handler(MessageHandler(unsupported_media_filters, self.handle_unsupported_media))
 
         # Обработчик неожиданных текстовых сообщений
         self.application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_unexpected_text))
