@@ -20,10 +20,11 @@ logger = logging.getLogger(__name__)
 
 class DeepSeekAPI:
     def __init__(self):
-        # Инициализируем клиент для обычных запросов
+        # Инициализируем клиент с увеличенными таймаутами
         self.client = OpenAI(
             api_key=DEEPSEEK_API_KEY,
-            base_url=DEEPSEEK_API_BASE
+            base_url=DEEPSEEK_API_BASE,
+            timeout=60.0  # Увеличиваем общий таймаут до 60 секунд
         )
 
         # Для загрузки файлов нужен отдельный клиент с заголовками
@@ -71,7 +72,7 @@ class DeepSeekAPI:
                     'file': (file_name, file_content, mime_type)
                 }
 
-                response = requests.post(upload_url, headers=headers, files=files, timeout=30)
+                response = requests.post(upload_url, headers=headers, files=files, timeout=60)
 
             if response.status_code == 200:
                 result = response.json()
@@ -133,106 +134,6 @@ class DeepSeekAPI:
             logger.error(f"Error extracting text from {file_path}: {e}")
             return f"Ошибка при извлечении текста: {str(e)[:200]}", False
 
-    def process_query_with_files_via_upload(self, user_query: str, files: List[str]) -> dict:
-        """
-        Обрабатывает запрос с файлами через загрузку в DeepSeek
-        """
-        try:
-            # Загружаем файлы и получаем file_ids
-            file_ids = []
-            for file_path in files:
-                file_id = self.upload_file_to_deepseek(file_path)
-                if file_id:
-                    file_ids.append(file_id)
-
-            if not file_ids:
-                return {"error": "Не удалось загрузить файлы в DeepSeek"}
-
-            # Формируем запрос с file_ids
-            messages = [
-                {
-                    "role": "system",
-                    "content": "Ты юрист с 30-летним стажем. Проанализируй предоставленные документы."
-                },
-                {
-                    "role": "user",
-                    "content": user_query,
-                    "file_ids": file_ids
-                }
-            ]
-
-            # Отправляем запрос
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=messages,
-                max_tokens=2000,
-                temperature=0.2
-            )
-
-            answer = response.choices[0].message.content
-            tokens_used = response.usage.total_tokens if hasattr(response, 'usage') else len(answer) // 4
-
-            return {
-                "answer": answer,
-                "tokens_used": tokens_used,
-                "file_ids": file_ids
-            }
-
-        except Exception as e:
-            logger.error(f"Error in process_query_with_files_via_upload: {e}")
-            return {"error": f"Ошибка обработки через загрузку: {str(e)}"}
-
-    def process_query_with_files_local(self, user_query: str, files: List[str]) -> dict:
-        """
-        Резервный метод: извлекает текст локально и отправляет как обычный запрос
-        """
-        try:
-            # Извлекаем текст из всех файлов
-            all_texts = []
-            for file_path in files:
-                if os.path.exists(file_path):
-                    text, success = self.extract_text_from_file(file_path)
-                    if success and text:
-                        all_texts.append(f"Файл: {os.path.basename(file_path)}\n{text}")
-
-            if not all_texts:
-                return {"error": "Не удалось извлечь текст ни из одного файла"}
-
-            # Формируем полный запрос
-            files_content = "\n\n".join(all_texts)
-            full_query = f"""{SYSTEM_PROMPT}
-
-АНАЛИЗ ДОКУМЕНТОВ:
-{files_content}
-
-ВОПРОС ПОЛЬЗОВАТЕЛЯ: {user_query}
-
-Проанализируй предоставленные документы и ответь на вопрос пользователя."""
-
-            # Отправляем запрос
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {"role": "user", "content": full_query}
-                ],
-                max_tokens=4000,
-                temperature=0.3
-            )
-
-            answer = response.choices[0].message.content
-            tokens_used = response.usage.total_tokens if hasattr(response, 'usage') and response.usage else len(answer) // 4
-
-            return {
-                "answer": answer,
-                "tokens_used": tokens_used,
-                "has_files": True,
-                "method": "local_extraction"
-            }
-
-        except Exception as e:
-            logger.error(f"Ошибка в резервном методе: {e}", exc_info=True)
-            return {"error": f"Ошибка при обработке файлов: {str(e)}"}
-
     def process_query(self, user_query: str,
                      file_texts: Optional[List[Dict]] = None,
                      use_search: bool = False,
@@ -248,14 +149,14 @@ class DeepSeekAPI:
                     filename = file_data.get('filename', 'file')
                     text = file_data.get('text', '')
                     files_content += f"\n\n=== ФАЙЛ: {filename} ===\n{text}"
-                
+
                 full_query = f"""{SYSTEM_PROMPT}
 
 ДОКУМЕНТЫ ДЛЯ АНАЛИЗА:{files_content}
 
 ВОПРОС: {user_query}
 
-Проанализируй предоставленные документы и дай юридически обоснованный ответ на вопрос."""
+Проанализируйте предоставленные документы и дайте юридически обоснованный ответ на вопрос пользователя."""
             else:
                 # Простой текстовый запрос
                 full_query = f"{SYSTEM_PROMPT}\n\nВопрос пользователя: {user_query}"
@@ -279,11 +180,13 @@ class DeepSeekAPI:
                     if msg["role"] == "user" and isinstance(msg["content"], str):
                         msg["content"] += "\n\nИспользуй актуальную информацию из интернета для ответа, если это необходимо."
 
+            # Увеличиваем таймаут для запроса
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=messages,
                 max_tokens=4000,
-                temperature=0.3
+                temperature=0.3,
+                timeout=45.0  # Увеличиваем таймаут до 45 секунд
             )
 
             answer = response.choices[0].message.content

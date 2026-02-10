@@ -1,9 +1,10 @@
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, scoped_session
-from models import Base, User, UserRequest
+from models import Base, User, UserRequest, PaidRequest
 from config import DATABASE_URL
 import logging
 from datetime import datetime, timedelta
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -68,8 +69,7 @@ class Database:
                     return True
                 return False
             else:
-                # Для платных вопросов - всегда разрешаем, если есть подписка
-                # или они покупаются через оплату
+                # Для платных вопросов - проверяем наличие оплаченных вопросов
                 return True
         except Exception as e:
             session.rollback()
@@ -108,7 +108,7 @@ class Database:
             total_requests = session.query(UserRequest).filter(UserRequest.user_id == user_id).count()
             has_subscription = False
             subscription_info = None
-            
+
             if user.subscription_type != 'none' and user.subscription_end:
                 has_subscription = user.subscription_end > datetime.utcnow()
                 if has_subscription:
@@ -142,6 +142,69 @@ class Database:
             session.rollback()
             logger.error(f"Error in activate_subscription: {e}")
             return False
+
+    # Методы для работы с оплаченными вопросами
+    def add_paid_request(self, session, user_id, request_type, amount, currency='RUB', payment_id=None):
+        """Добавляет оплаченный вопрос в базу данных и возвращает его ID"""
+        try:
+            paid_request = PaidRequest(
+                user_id=user_id,
+                request_type=request_type,
+                amount=amount,
+                currency=currency,
+                payment_id=payment_id,
+                paid_at=datetime.utcnow(),
+                used=False
+            )
+            session.add(paid_request)
+            session.commit()
+            session.refresh(paid_request)  # Обновляем объект, чтобы получить ID
+            logger.info(f"Paid request added for user {user_id}, type: {request_type}, amount: {amount}, id: {paid_request.id}")
+            return paid_request
+        except Exception as e:
+            session.rollback()
+            logger.error(f"Error adding paid request: {e}")
+            return None
+        
+    def get_unused_paid_requests(self, session, user_id, request_type=None):
+        """Получает неиспользованные оплаченные вопросы пользователя"""
+        try:
+            query = session.query(PaidRequest).filter(
+                PaidRequest.user_id == user_id,
+                PaidRequest.used == False
+            )
+            if request_type:
+                query = query.filter(PaidRequest.request_type == request_type)
+            return query.order_by(PaidRequest.paid_at.asc()).all()
+        except Exception as e:
+            logger.error(f"Error getting unused paid requests: {e}")
+            return []
+
+    def use_paid_request(self, session, paid_request_id, request_id=None):
+        """Отмечает оплаченный вопрос как использованный"""
+        try:
+            paid_request = session.query(PaidRequest).filter(PaidRequest.id == paid_request_id).first()
+            if paid_request:
+                paid_request.used = True
+                paid_request.used_at = datetime.utcnow()
+                if request_id:
+                    paid_request.request_id = request_id
+                session.commit()
+                logger.info(f"Paid request {paid_request_id} marked as used")
+                return True
+            return False
+        except Exception as e:
+            session.rollback()
+            logger.error(f"Error using paid request: {e}")
+            return False
+
+    def get_paid_request_by_id(self, session, paid_request_id):
+        """Получает оплаченный вопрос по ID"""
+        try:
+            return session.query(PaidRequest).filter(PaidRequest.id == paid_request_id).first()
+        except Exception as e:
+            logger.error(f"Error getting paid request by id: {e}")
+            return None
 
 # Глобальный экземпляр базы данных
 db = Database()

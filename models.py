@@ -24,6 +24,7 @@ class User(Base):
 
     # Отношения
     requests = relationship("UserRequest", back_populates="user", cascade="all, delete-orphan")
+    paid_requests = relationship("PaidRequest", back_populates="user", cascade="all, delete-orphan")
 
     def __repr__(self):
         return f"<User(id={self.id}, user_id={self.user_id}, username={self.username})>"
@@ -42,6 +43,28 @@ class UserRequest(Base):
 
     # Отношения
     user = relationship("User", back_populates="requests")
+    paid_request = relationship("PaidRequest", back_populates="request", uselist=False)
 
     def __repr__(self):
         return f"<UserRequest(id={self.id}, user_id={self.user_id}, timestamp={self.timestamp})>"
+
+class PaidRequest(Base):
+    __tablename__ = 'paid_requests'
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey('users.user_id'))
+    request_type = Column(String(20))  # 'text' или 'file'
+    amount = Column(Integer)  # сумма в копейках
+    currency = Column(String(3), default='RUB')
+    payment_id = Column(String(100))  # ID платежа в YooKassa
+    paid_at = Column(DateTime, default=datetime.utcnow)
+    used = Column(Boolean, default=False)
+    used_at = Column(DateTime, nullable=True)
+    request_id = Column(Integer, ForeignKey('user_requests.id'), nullable=True)
+
+    # Отношения
+    user = relationship("User", back_populates="paid_requests")
+    request = relationship("UserRequest", back_populates="paid_request")
+
+    def __repr__(self):
+        return f"<PaidRequest(id={self.id}, user_id={self.user_id}, request_type={self.request_type}, used={self.used})>"
