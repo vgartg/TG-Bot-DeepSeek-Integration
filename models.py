@@ -1,6 +1,6 @@
-from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime, Text, ForeignKey
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, Text, ForeignKey
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker, relationship
+from sqlalchemy.orm import relationship
 from datetime import datetime
 
 Base = declarative_base()
@@ -53,18 +53,23 @@ class PaidRequest(Base):
 
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey('users.user_id'))
-    request_type = Column(String(20))  # 'text' или 'file'
+    request_type = Column(String(20))  # 'text', 'file', 'subscription'
     amount = Column(Integer)  # сумма в копейках
     currency = Column(String(3), default='RUB')
     payment_id = Column(String(100))  # ID платежа в YooKassa
     paid_at = Column(DateTime, default=datetime.utcnow)
-    used = Column(Boolean, default=False)
+    used = Column(Boolean, default=False)       # для отдельных вопросов – использован ли
     used_at = Column(DateTime, nullable=True)
     request_id = Column(Integer, ForeignKey('user_requests.id'), nullable=True)
+
+    # Поля для чеков (админ‑панель)
+    phone_number = Column(String(50), nullable=True)
+    email = Column(String(255), nullable=True)
+    receipt_issued = Column(Boolean, default=False)
 
     # Отношения
     user = relationship("User", back_populates="paid_requests")
     request = relationship("UserRequest", back_populates="paid_request")
 
     def __repr__(self):
-        return f"<PaidRequest(id={self.id}, user_id={self.user_id}, request_type={self.request_type}, used={self.used})>"
+        return f"<PaidRequest(id={self.id}, user_id={self.user_id}, request_type={self.request_type}, used={self.used}, receipt_issued={self.receipt_issued})>"

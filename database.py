@@ -4,7 +4,6 @@ from models import Base, User, UserRequest, PaidRequest
 from config import DATABASE_URL
 import logging
 from datetime import datetime, timedelta
-import time
 
 logger = logging.getLogger(__name__)
 
@@ -143,9 +142,14 @@ class Database:
             logger.error(f"Error in activate_subscription: {e}")
             return False
 
-    # Методы для работы с оплаченными вопросами
-    def add_paid_request(self, session, user_id, request_type, amount, currency='RUB', payment_id=None):
-        """Добавляет оплаченный вопрос в базу данных и возвращает его ID"""
+    # ---------- Методы для работы с оплаченными запросами ----------
+
+    def add_paid_request(self, session, user_id, request_type, amount, currency='RUB',
+                         payment_id=None, phone_number=None, email=None):
+        """
+        Добавляет оплаченный запрос (вопрос или подписку) в базу данных.
+        Возвращает объект PaidRequest.
+        """
         try:
             paid_request = PaidRequest(
                 user_id=user_id,
@@ -154,24 +158,28 @@ class Database:
                 currency=currency,
                 payment_id=payment_id,
                 paid_at=datetime.utcnow(),
-                used=False
+                used=False,
+                phone_number=phone_number,
+                email=email,
+                receipt_issued=False
             )
             session.add(paid_request)
             session.commit()
-            session.refresh(paid_request)  # Обновляем объект, чтобы получить ID
+            session.refresh(paid_request)
             logger.info(f"Paid request added for user {user_id}, type: {request_type}, amount: {amount}, id: {paid_request.id}")
             return paid_request
         except Exception as e:
             session.rollback()
             logger.error(f"Error adding paid request: {e}")
             return None
-        
+
     def get_unused_paid_requests(self, session, user_id, request_type=None):
-        """Получает неиспользованные оплаченные вопросы пользователя"""
+        """Получает неиспользованные оплаченные вопросы пользователя (для использования)."""
         try:
             query = session.query(PaidRequest).filter(
                 PaidRequest.user_id == user_id,
-                PaidRequest.used == False
+                PaidRequest.used == False,
+                PaidRequest.request_type.in_(['text', 'file'])  # только вопросы, не подписки
             )
             if request_type:
                 query = query.filter(PaidRequest.request_type == request_type)
@@ -181,10 +189,10 @@ class Database:
             return []
 
     def use_paid_request(self, session, paid_request_id, request_id=None):
-        """Отмечает оплаченный вопрос как использованный"""
+        """Отмечает оплаченный вопрос как использованный."""
         try:
             paid_request = session.query(PaidRequest).filter(PaidRequest.id == paid_request_id).first()
-            if paid_request:
+            if paid_request and paid_request.request_type in ['text', 'file']:
                 paid_request.used = True
                 paid_request.used_at = datetime.utcnow()
                 if request_id:
@@ -199,12 +207,58 @@ class Database:
             return False
 
     def get_paid_request_by_id(self, session, paid_request_id):
-        """Получает оплаченный вопрос по ID"""
+        """Получает оплаченный запрос по ID."""
         try:
             return session.query(PaidRequest).filter(PaidRequest.id == paid_request_id).first()
         except Exception as e:
             logger.error(f"Error getting paid request by id: {e}")
             return None
+
+    # ---------- Методы для админ‑панели (чеки) ----------
+
+    def get_pending_receipts(self, session):
+        """Получить все платежи с невыставленными чеками (receipt_issued=False)."""
+        try:
+            return session.query(PaidRequest).filter(
+                PaidRequest.receipt_issued == False
+            ).order_by(PaidRequest.paid_at.desc()).all()
+        except Exception as e:
+            logger.error(f"Error getting pending receipts: {e}")
+            return []
+
+    def get_issued_receipts(self, session):
+        """Получить все платежи с выставленными чеками (receipt_issued=True)."""
+        try:
+            return session.query(PaidRequest).filter(
+                PaidRequest.receipt_issued == True
+            ).order_by(PaidRequest.paid_at.desc()).all()
+        except Exception as e:
+            logger.error(f"Error getting issued receipts: {e}")
+            return []
+
+    def mark_receipt_issued(self, session, paid_request_id):
+        """Отметить чек как сформированный."""
+        try:
+            paid_request = session.query(PaidRequest).filter(PaidRequest.id == paid_request_id).first()
+            if paid_request:
+                paid_request.receipt_issued = True
+                session.commit()
+                logger.info(f"Receipt marked as issued for paid request {paid_request_id}")
+                return True
+            return False
+        except Exception as e:
+            session.rollback()
+            logger.error(f"Error marking receipt issued: {e}")
+            return False
+
+    def count_pending_receipts(self, session):
+        """Количество неготовых чеков."""
+        try:
+            return session.query(PaidRequest).filter(PaidRequest.receipt_issued == False).count()
+        except Exception as e:
+            logger.error(f"Error counting pending receipts: {e}")
+            return 0
+
 
 # Глобальный экземпляр базы данных
 db = Database()
