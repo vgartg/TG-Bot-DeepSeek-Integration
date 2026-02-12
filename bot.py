@@ -1342,9 +1342,6 @@ class LegalBot:
                 if 'paid_request_id' in context.user_data:
                     del context.user_data['paid_request_id']
 
-            if not has_subscription and question_type == 'free':
-                db.update_user_tokens(session, user_id, 'free')
-
             session.close()
 
             answer_parts = format_answer(result['answer'])
