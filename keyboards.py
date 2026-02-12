@@ -75,8 +75,6 @@ def get_issued_receipt_control(has_next, has_prev):
     return InlineKeyboardMarkup(keyboard)
 
 
-# ---------- Остальные клавиатуры (без изменений) ----------
-
 def get_instruction_menu():
     keyboard = [[InlineKeyboardButton("⭐ Главное меню", callback_data='main_menu')]]
     return InlineKeyboardMarkup(keyboard)
@@ -90,16 +88,16 @@ def get_instruction_view_menu():
 
 def get_free_questions_menu():
     keyboard = [
-        [InlineKeyboardButton("📝 Ответ на вопрос", callback_data='free_text')],
-        [InlineKeyboardButton("📎 Ответ с загрузкой документов", callback_data='free_file')],
+        [InlineKeyboardButton("📝 Обычный вопрос", callback_data='free_text')],
+        [InlineKeyboardButton("📎 Вопрос с загрузкой документов", callback_data='free_file')],
         [InlineKeyboardButton("↩️ Главное меню", callback_data='main_menu')]
     ]
     return InlineKeyboardMarkup(keyboard)
 
 def get_paid_questions_menu():
     keyboard = [
-        [InlineKeyboardButton("📝 Ответ на вопрос", callback_data='paid_text')],
-        [InlineKeyboardButton("📎 Ответ с загрузкой документов", callback_data='paid_file')],
+        [InlineKeyboardButton("📝 Обычный вопрос", callback_data='paid_text')],
+        [InlineKeyboardButton("📎 Вопрос с загрузкой документов", callback_data='paid_file')],
         [InlineKeyboardButton("⭐ Главное меню", callback_data='main_menu')]
     ]
     return InlineKeyboardMarkup(keyboard)

@@ -107,7 +107,7 @@ class LegalBot:
 
         if paid_requests:
             await update.message.reply_text(
-                f"📋 У вас есть неиспользованные оплаченные вопросы: {len(paid_requests)}.\n"
+                f"📋 У Вас есть неиспользованные оплаченные вопросы: {len(paid_requests)}.\n"
                 f"Вы можете использовать их в меню 'Платные вопросы'.",
                 reply_markup=kb
             )
@@ -153,9 +153,9 @@ class LegalBot:
             free_left = user_stats['free_requests_left'] if user_stats else 4
             has_sub = user_stats['has_subscription'] if user_stats else False
 
-            message_text = f"У вас осталось бесплатных вопросов: {free_left}\n\n"
+            message_text = f"У Вас осталось бесплатных вопросов: {free_left}\n\n"
             if has_sub:
-                message_text += "📱 У вас активна подписка, поэтому вы можете задавать вопросы без ограничений.\n\n"
+                message_text += "📱 У Вас активна подписка, поэтому Вы можете задавать вопросы без ограничений.\n\n"
             message_text += "Выберите тип вопроса:"
 
             await self.safe_edit_message(
@@ -175,14 +175,15 @@ class LegalBot:
 
             message_text = "Выберите тип платного вопроса:\n\n"
             if text_count > 0:
-                message_text += f"📝 Ответ на вопрос - У вас есть неиспользованные оплаченные вопросы: {text_count}\n"
+                message_text += f"📝 Обычный вопрос - У Вас есть неиспользованные оплаченные вопросы: {text_count}\n"
             else:
-                message_text += "📝 Ответ на вопрос - 100 руб.\n"
+                message_text += "📝 Обычный вопрос - 200 руб.\n"
             if file_count > 0:
-                message_text += f"📎 Ответ с загрузкой документов - У вас есть неиспользованные оплаченные вопросы: {file_count}\n"
+                message_text += f"📎 Вопрос с загрузкой документов - У Вас есть неиспользованные оплаченные вопросы: {file_count}\n"
             else:
-                message_text += "📎 Ответ с загрузкой документов - 200 руб.\n"
-            message_text += "\nЕсли у вас есть оплаченные вопросы, они будут использованы в первую очередь.\nЕсли у вас оформлена подписка, то плата за вопросы не будет запрашиваться, пока подписка активна"
+                message_text += "📎 Вопрос с загрузкой документов - 300 руб.\n"
+            message_text += "\nЕсли у Вас есть оплаченные вопросы, они будут использованы в первую очередь.\n"
+            message_text += "Если у Вас оформлена подписка, то плата за вопросы не будет запрашиваться, пока подписка активна"
 
             await self.safe_edit_message(
                 query,
@@ -196,10 +197,10 @@ class LegalBot:
                 end_date = sub_info['end'].strftime("%d.%m.%Y")
                 await self.safe_edit_message(
                     query,
-                    f"✅ У вас активна подписка!\n\n"
+                    f"✅ У Вас активна подписка!\n\n"
                     f"📅 Тип подписки: {sub_info['type']}\n"
                     f"📅 Действует до: {end_date}\n\n"
-                    f"С подпиской вы можете задавать неограниченное количество вопросов.\n"
+                    f"С подпиской Вы можете задавать неограниченное количество вопросов.\n"
                     f"Выберите действие:",
                     reply_markup=kb_main
                 )
@@ -311,7 +312,7 @@ class LegalBot:
             # Проверяем, есть ли уже активная подписка
             if has_subscription:
                 await query.message.reply_text(
-                    "⛔ У вас уже есть активная подписка. Вы не можете оформить новую, пока действует текущая.",
+                    "⏳ У Вас уже есть активная подписка. Вы не можете оформить новую, пока действует текущая.",
                     reply_markup=kb_main
                 )
                 return
@@ -356,13 +357,6 @@ class LegalBot:
                     send_phone_number_to_provider=True,
                     send_email_to_provider=True
                 )
-                if PROVIDER_TOKEN and 'TEST' in PROVIDER_TOKEN:
-                    await query.message.reply_text(
-                        "💳 Для оплаты используйте тестовые данные карты:\n"
-                        "Номер: 1111 1111 1111 1026\n"
-                        "Срок: 12/22\n"
-                        "CVC: 000"
-                    )
             except Exception as e:
                 logger.error(f"Error sending invoice: {e}\n{traceback.format_exc()}")
                 await query.message.reply_text(
@@ -384,7 +378,7 @@ class LegalBot:
                     kb = await self._get_main_menu_kb(user_id)
                     await self.safe_edit_message(
                         query,
-                        "❌ У вас закончились бесплатные вопросы.\n\n"
+                        "❌ У Вас закончились бесплатные вопросы.\n\n"
                         "Перейдите в раздел 'Платные вопросы' или 'Подписка на безлимит'.",
                         reply_markup=kb
                     )
@@ -426,8 +420,8 @@ class LegalBot:
                 else:
                     # Нет оплаченных вопросов и нет подписки – предложить оплатить
                     payload = 'question_text'
-                    title = "Ответ на юридический вопрос"
-                    description = "Ответ на один юридический вопрос без документов"
+                    title = "Обычный вопрос"
+                    description = "Обычный вопрос без загрузки документов"
                     price = PRICES['question_text']
                     context.user_data['pending_question_type'] = 'paid_text'
                     try:
@@ -438,19 +432,12 @@ class LegalBot:
                             payload=payload,
                             provider_token=PROVIDER_TOKEN,
                             currency=CURRENCY,
-                            prices=[LabeledPrice("Ответ на вопрос", price)],
+                            prices=[LabeledPrice("Обычный вопрос", price)],
                             need_phone_number=True,
                             need_email=True,
                             send_phone_number_to_provider=True,
                             send_email_to_provider=True
                         )
-                        if PROVIDER_TOKEN and 'TEST' in PROVIDER_TOKEN:
-                            await query.message.reply_text(
-                                "💳 Для оплаты используйте тестовые данные карты:\n"
-                                "Номер: 1111 1111 1111 1026\n"
-                                "Срок: 12/22\n"
-                                "CVC: 000"
-                            )
                     except Exception as e:
                         logger.error(f"Error sending invoice: {e}\n{traceback.format_exc()}")
                         kb = await self._get_main_menu_kb(user_id)
@@ -472,7 +459,7 @@ class LegalBot:
                     kb = await self._get_main_menu_kb(user_id)
                     await self.safe_edit_message(
                         query,
-                        "❌ У вас закончились бесплатные вопросы.\n\n"
+                        "❌ У Вас закончились бесплатные вопросы.\n\n"
                         "Перейдите в раздел 'Платные вопросы' или 'Подписка на безлимит'.",
                         reply_markup=kb
                     )
@@ -519,8 +506,8 @@ class LegalBot:
                     return WAITING_FILE_QUESTION
                 else:
                     payload = 'question_file'
-                    title = "Ответ с анализом документов"
-                    description = "Ответ на один юридический вопрос с анализом документов"
+                    title = "Вопрос с загрузкой документов"
+                    description = "Вопрос с загрузкой документов"
                     price = PRICES['question_file']
                     context.user_data['pending_question_type'] = 'paid_file'
                     try:
@@ -531,19 +518,12 @@ class LegalBot:
                             payload=payload,
                             provider_token=PROVIDER_TOKEN,
                             currency=CURRENCY,
-                            prices=[LabeledPrice("Ответ с документами", price)],
+                            prices=[LabeledPrice("Вопрос с загрузкой документов", price)],
                             need_phone_number=True,
                             need_email=True,
                             send_phone_number_to_provider=True,
                             send_email_to_provider=True
                         )
-                        if PROVIDER_TOKEN and 'TEST' in PROVIDER_TOKEN:
-                            await query.message.reply_text(
-                                "💳 Для оплаты используйте тестовые данные карты:\n"
-                                "Номер: 1111 1111 1111 1026\n"
-                                "Срок: 12/22\n"
-                                "CVC: 000"
-                            )
                     except Exception as e:
                         logger.error(f"Error sending invoice: {e}\n{traceback.format_exc()}")
                         kb = await self._get_main_menu_kb(user_id)
@@ -555,7 +535,7 @@ class LegalBot:
         # ----- АДМИН ПАНЕЛЬ -----
         elif query.data == 'admin_panel':
             if not self._is_admin(user_id):
-                await query.message.reply_text("У вас нет доступа к этой панели.", reply_markup=kb_main)
+                await query.message.reply_text("У Вас нет доступа к этой панели.", reply_markup=kb_main)
                 return
 
             session = db.get_session()
@@ -859,7 +839,7 @@ class LegalBot:
                     kb = await self._get_main_menu_kb(user_id)
                     await update.message.reply_text(
                         f"🎉 Подписка успешно активирована!\n\n"
-                        f"⭐ Теперь у вас безлимитный доступ.\n"
+                        f"⭐ Теперь у Вас безлимитный доступ.\n"
                         f"⏳ Срок действия: {sub_type}\n\n"
                         f"Выберите дальнейшее действие:",
                         reply_markup=kb
@@ -983,7 +963,7 @@ class LegalBot:
         if question_type == 'free' and not has_subscription:
             if user_stats and user_stats['free_requests_left'] <= 0:
                 await update.message.reply_text(
-                    "❌ У вас закончились бесплатные вопросы.\n\n"
+                    "❌ У Вас закончились бесплатные вопросы.\n\n"
                     "Перейдите в раздел 'Платные вопросы' или 'Подписка на безлимит'.",
                     reply_markup=await self._get_main_menu_kb(user_id)
                 )
@@ -1001,7 +981,7 @@ class LegalBot:
             paid_requests = db.get_unused_paid_requests(session, user_id, 'text')
             if not paid_requests:
                 await update.message.reply_text(
-                    "❌ У вас нет оплаченных вопросов. Пожалуйста, оплатите вопрос.",
+                    "❌ У Вас нет оплаченных вопросов. Пожалуйста, оплатите вопрос.",
                     reply_markup=await self._get_main_menu_kb(user_id)
                 )
                 session.close()
@@ -1070,7 +1050,7 @@ class LegalBot:
             if has_subscription or question_type == 'subscription':
                 await update.message.reply_text(
                     f"✅ Ответ сформирован!\n\n"
-                    f"📱 У вас активна подписка\n\n"
+                    f"📱 У Вас активна подписка\n\n"
                     f"Выберите дальнейшее действие:",
                     reply_markup=await self._get_main_menu_kb(user_id)
                 )
@@ -1256,7 +1236,7 @@ class LegalBot:
             if question_type == 'free':
                 if user_stats and user_stats['free_requests_left'] <= 0:
                     await update.message.reply_text(
-                        "❌ У вас закончились бесплатные вопросы.\n\n"
+                        "❌ У Вас закончились бесплатные вопросы.\n\n"
                         "Перейдите в раздел 'Платные вопросы' или 'Подписка на безлимит'.",
                         reply_markup=await self._get_main_menu_kb(user_id)
                     )
@@ -1274,7 +1254,7 @@ class LegalBot:
                 paid_requests = db.get_unused_paid_requests(session, user_id, 'file')
                 if not paid_requests:
                     await update.message.reply_text(
-                        "❌ У вас нет оплаченных вопросов с документами. Пожалуйста, оплатите вопрос.",
+                        "❌ У Вас нет оплаченных вопросов с документами. Пожалуйста, оплатите вопрос.",
                         reply_markup=await self._get_main_menu_kb(user_id)
                     )
                     for file_path in context.user_data['files']:
@@ -1383,7 +1363,7 @@ class LegalBot:
             if has_subscription or question_type == 'subscription':
                 await update.message.reply_text(
                     f"✅ Анализ завершен!\n\n"
-                    f"📱 У вас активна подписка\n\n"
+                    f"📱 У Вас активна подписка\n\n"
                     f"Выберите дальнейшее действие:",
                     reply_markup=await self._get_main_menu_kb(user_id)
                 )
@@ -1436,7 +1416,7 @@ class LegalBot:
                 request_type = "текстовый" if paid_request.request_type == 'text' else "с документами"
                 await update.message.reply_text(
                     f"✅ Оплаченный вопрос сохранён!\n\n"
-                    f"📋 У вас остался оплаченный {request_type} вопрос.\n"
+                    f"📋 У Вас остался оплаченный {request_type} вопрос.\n"
                     f"Вы можете использовать его позже в меню 'Платные вопросы'.",
                     reply_markup=await self._get_main_menu_kb(update.effective_user.id)
                 )
