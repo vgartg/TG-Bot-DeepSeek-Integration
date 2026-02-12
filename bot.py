@@ -342,6 +342,10 @@ class LegalBot:
             else:
                 return
 
+            user = query.from_user
+            username = user.username
+            need_phone = (username is None or username.strip() == "")
+
             # Отправляем инвойс
             try:
                 await context.bot.send_invoice(
@@ -352,10 +356,10 @@ class LegalBot:
                     provider_token=PROVIDER_TOKEN,
                     currency=CURRENCY,
                     prices=[LabeledPrice(title, price)],
-                    need_phone_number=True,
-                    need_email=True,
-                    send_phone_number_to_provider=True,
-                    send_email_to_provider=True
+                    need_phone_number=need_phone,
+                    need_email=False,
+                    send_phone_number_to_provider=need_phone,
+                    send_email_to_provider=False
                 )
             except Exception as e:
                 logger.error(f"Error sending invoice: {e}\n{traceback.format_exc()}")
@@ -424,6 +428,11 @@ class LegalBot:
                     description = "Обычный вопрос без загрузки документов"
                     price = PRICES['question_text']
                     context.user_data['pending_question_type'] = 'paid_text'
+
+                    user = query.from_user
+                    username = user.username
+                    need_phone = (username is None or username.strip() == "")
+
                     try:
                         await context.bot.send_invoice(
                             chat_id=user_id,
@@ -433,10 +442,10 @@ class LegalBot:
                             provider_token=PROVIDER_TOKEN,
                             currency=CURRENCY,
                             prices=[LabeledPrice("Обычный вопрос", price)],
-                            need_phone_number=True,
-                            need_email=True,
-                            send_phone_number_to_provider=True,
-                            send_email_to_provider=True
+                            need_phone_number=need_phone,
+                            need_email=False,
+                            send_phone_number_to_provider=need_phone,
+                            send_email_to_provider=False
                         )
                     except Exception as e:
                         logger.error(f"Error sending invoice: {e}\n{traceback.format_exc()}")
@@ -510,6 +519,11 @@ class LegalBot:
                     description = "Вопрос с загрузкой документов"
                     price = PRICES['question_file']
                     context.user_data['pending_question_type'] = 'paid_file'
+
+                    user = query.from_user
+                    username = user.username
+                    need_phone = (username is None or username.strip() == "")
+
                     try:
                         await context.bot.send_invoice(
                             chat_id=user_id,
@@ -519,10 +533,10 @@ class LegalBot:
                             provider_token=PROVIDER_TOKEN,
                             currency=CURRENCY,
                             prices=[LabeledPrice("Вопрос с загрузкой документов", price)],
-                            need_phone_number=True,
-                            need_email=True,
-                            send_phone_number_to_provider=True,
-                            send_email_to_provider=True
+                            need_phone_number=need_phone,
+                            need_email=False,
+                            send_phone_number_to_provider=need_phone,
+                            send_email_to_provider=False
                         )
                     except Exception as e:
                         logger.error(f"Error sending invoice: {e}\n{traceback.format_exc()}")
