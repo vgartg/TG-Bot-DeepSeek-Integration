@@ -1,6 +1,6 @@
 # Legal Bot
 
-[![CI](https://github.com/valerygorbanev/TG-Bot-DeepSeek-Integration/actions/workflows/ci.yml/badge.svg)](https://github.com/valerygorbanev/TG-Bot-DeepSeek-Integration/actions/workflows/ci.yml)
+![CI](https://github.com/vgartg/TG-Bot-DeepSeek-Integration/actions/workflows/ci.yml/badge.svg)
 [![Python](https://img.shields.io/badge/python-3.12-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![python-telegram-bot](https://img.shields.io/badge/python--telegram--bot-20.7-26A5E4?logo=telegram&logoColor=white)](https://python-telegram-bot.org/)
 [![DeepSeek](https://img.shields.io/badge/DeepSeek-API-4D6BFE)](https://platform.deepseek.com/)
