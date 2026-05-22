@@ -10,7 +10,7 @@ A pet project to practice building a real-world Telegram bot end to end: a long-
 
 ## What it does
 
-`Legal Bot` is a Russian-language consultation bot that answers civil-law questions on demand. Users start with four free questions, then either buy one-off paid questions (text or with attached PDF/DOCX/TXT documents) or activate an unlimited subscription for two weeks, one month, or three months
+Bot that answers civil-law questions on demand. Users start with four free questions, then either buy one-off paid questions (text or with attached PDF/DOCX/TXT documents) or activate an unlimited subscription for two weeks, one month, or three months
 
 The bot remembers each user's quota, persists every paid request as a receipt that an admin can mark as issued, falls back from DeepSeek's remote file upload to local text extraction (`pdfplumber` → `PyPDF2` → `python-docx`) when the upload endpoint is unavailable, and splits long answers across multiple Telegram messages so it never trips the 4096-character limit
 
