@@ -1,25 +1,21 @@
 import logging
-import os
 import mimetypes
-from typing import List, Optional, Dict
+import os
 
 import docx
-import PyPDF2
 import pdfplumber
+import PyPDF2
 import requests
 from openai import OpenAI
 
-from .config import DEEPSEEK_API_KEY, DEEPSEEK_API_BASE, DEEPSEEK_MODEL, SYSTEM_PROMPT
+from .config import DEEPSEEK_API_BASE, DEEPSEEK_API_KEY, DEEPSEEK_MODEL, SYSTEM_PROMPT
 
 logger = logging.getLogger(__name__)
 
+
 class DeepSeekAPI:
     def __init__(self):
-        self.client = OpenAI(
-            api_key=DEEPSEEK_API_KEY,
-            base_url=DEEPSEEK_API_BASE,
-            timeout=60.0
-        )
+        self.client = OpenAI(api_key=DEEPSEEK_API_KEY, base_url=DEEPSEEK_API_BASE, timeout=60.0)
 
         self.api_key = DEEPSEEK_API_KEY
         self.model = DEEPSEEK_MODEL
@@ -40,23 +36,18 @@ class DeepSeekAPI:
                 return 'application/octet-stream'
         return mime_type
 
-    def upload_file_to_deepseek(self, file_path: str) -> Optional[str]:
+    def upload_file_to_deepseek(self, file_path: str) -> str | None:
         """Загружает файл в DeepSeek API и возвращает file_id."""
         try:
             upload_url = f"{self.base_url}/files"
 
-            headers = {
-                'Authorization': f'Bearer {self.api_key}',
-                'Accept': 'application/json'
-            }
+            headers = {'Authorization': f'Bearer {self.api_key}', 'Accept': 'application/json'}
 
             mime_type = self.get_mime_type(file_path)
             file_name = os.path.basename(file_path)
 
             with open(file_path, 'rb') as file_content:
-                files = {
-                    'file': (file_name, file_content, mime_type)
-                }
+                files = {'file': (file_name, file_content, mime_type)}
 
                 response = requests.post(upload_url, headers=headers, files=files, timeout=60)
 
@@ -79,7 +70,7 @@ class DeepSeekAPI:
             ext = os.path.splitext(file_path)[1].lower()
 
             if ext == '.txt':
-                with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                with open(file_path, encoding='utf-8', errors='ignore') as f:
                     text = f.read()
                 success = len(text.strip()) > 0
                 return text, success
@@ -119,10 +110,13 @@ class DeepSeekAPI:
             logger.error(f"Error extracting text from {file_path}: {e}")
             return f"Ошибка при извлечении текста: {str(e)[:200]}", False
 
-    def process_query(self, user_query: str,
-                     file_texts: Optional[List[Dict]] = None,
-                     use_search: bool = False,
-                     use_deepthink: bool = True) -> dict:
+    def process_query(
+        self,
+        user_query: str,
+        file_texts: list[dict] | None = None,
+        use_search: bool = False,
+        use_deepthink: bool = True,
+    ) -> dict:
         """Основная точка входа для обработки запросов."""
         try:
             if file_texts and len(file_texts) > 0:
@@ -145,37 +139,32 @@ class DeepSeekAPI:
             messages = []
 
             if use_deepthink:
-                messages.append({
-                    "role": "system",
-                    "content": "Пожалуйста, используй режим deepthink для глубокого анализа. Отвечай на русском языке."
-                })
+                messages.append(
+                    {
+                        "role": "system",
+                        "content": "Пожалуйста, используй режим deepthink для глубокого анализа. Отвечай на русском языке.",
+                    }
+                )
 
-            messages.append({
-                "role": "user",
-                "content": full_query
-            })
+            messages.append({"role": "user", "content": full_query})
 
             if use_search:
                 for msg in messages:
                     if msg["role"] == "user" and isinstance(msg["content"], str):
-                        msg["content"] += "\n\nИспользуй актуальную информацию из интернета для ответа, если это необходимо."
+                        msg["content"] += (
+                            "\n\nИспользуй актуальную информацию из интернета для ответа, если это необходимо."
+                        )
 
             response = self.client.chat.completions.create(
-                model=self.model,
-                messages=messages,
-                max_tokens=4000,
-                temperature=0.3,
-                timeout=45.0
+                model=self.model, messages=messages, max_tokens=4000, temperature=0.3, timeout=45.0
             )
 
             answer = response.choices[0].message.content
-            tokens_used = response.usage.total_tokens if hasattr(response, 'usage') and response.usage else len(answer) // 4
+            tokens_used = (
+                response.usage.total_tokens if hasattr(response, 'usage') and response.usage else len(answer) // 4
+            )
 
-            return {
-                "answer": answer,
-                "tokens_used": tokens_used,
-                "has_files": bool(file_texts and len(file_texts) > 0)
-            }
+            return {"answer": answer, "tokens_used": tokens_used, "has_files": bool(file_texts and len(file_texts) > 0)}
 
         except Exception as e:
             logger.error(f"Error processing query: {e}", exc_info=True)

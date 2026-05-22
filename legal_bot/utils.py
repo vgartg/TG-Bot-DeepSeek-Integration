@@ -1,14 +1,15 @@
+import logging
 import os
 import tempfile
-import logging
 from io import BytesIO
 
 import qrcode
 from PIL import Image
 
-from .config import SUPPORTED_FILE_TYPES, MAX_TELEGRAM_MESSAGE_LENGTH
+from .config import MAX_TELEGRAM_MESSAGE_LENGTH, SUPPORTED_FILE_TYPES
 
 logger = logging.getLogger(__name__)
+
 
 def generate_qr_code(url, bot=None):
     """Генерирует QR-код для ссылки.
@@ -36,6 +37,7 @@ def generate_qr_code(url, bot=None):
         logger.error(f"Error generating QR code: {e}")
         return None
 
+
 def format_answer(answer, max_length=MAX_TELEGRAM_MESSAGE_LENGTH):
     """Форматирует ответ для отправки в Telegram."""
     if len(answer) <= max_length:
@@ -53,10 +55,11 @@ def format_answer(answer, max_length=MAX_TELEGRAM_MESSAGE_LENGTH):
             if split_point == -1:
                 split_point = max_length
 
-        parts.append(answer[:split_point + 1])
-        answer = answer[split_point + 1:]
+        parts.append(answer[: split_point + 1])
+        answer = answer[split_point + 1 :]
 
     return parts
+
 
 def check_file_type(filename):
     """Проверяет поддерживаемый тип файла."""
@@ -65,12 +68,14 @@ def check_file_type(filename):
     ext = os.path.splitext(filename)[1].lower()
     return ext in SUPPORTED_FILE_TYPES
 
+
 def get_file_size_mb(file_path):
     """Получает размер файла в МБ."""
     try:
         return os.path.getsize(file_path) / (1024 * 1024)
     except OSError:
         return 0
+
 
 def resize_image_if_needed(file_path, max_size_mb=10):
     """Изменяет размер изображения если оно слишком большое."""

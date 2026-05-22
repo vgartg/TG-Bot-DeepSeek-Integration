@@ -1,15 +1,15 @@
 from telegram import InlineKeyboardMarkup
 
 from legal_bot.keyboards import (
-    get_main_menu,
-    get_ask_question_menu,
     get_admin_menu,
-    get_free_questions_menu,
-    get_paid_questions_menu,
-    get_subscription_menu,
+    get_ask_question_menu,
     get_cancel_button,
-    get_pending_receipt_control,
+    get_free_questions_menu,
     get_issued_receipt_control,
+    get_main_menu,
+    get_paid_questions_menu,
+    get_pending_receipt_control,
+    get_subscription_menu,
 )
 
 

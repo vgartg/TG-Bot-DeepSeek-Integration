@@ -1,11 +1,14 @@
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, scoped_session
-from .models import Base, User, UserRequest, PaidRequest
-from .config import DATABASE_URL
 import logging
 from datetime import datetime, timedelta
 
+from sqlalchemy import create_engine
+from sqlalchemy.orm import scoped_session, sessionmaker
+
+from .config import DATABASE_URL
+from .models import Base, PaidRequest, User, UserRequest
+
 logger = logging.getLogger(__name__)
+
 
 class Database:
     def __init__(self):
@@ -36,7 +39,7 @@ class Database:
                     last_name=last_name,
                     created_at=datetime.utcnow(),
                     free_requests_left=4,
-                    subscription_type='none'
+                    subscription_type='none',
                 )
                 session.add(user)
                 session.commit()
@@ -85,7 +88,7 @@ class Database:
                 tokens_used=tokens_used,
                 has_files=has_files,
                 files_info=files_info,
-                timestamp=datetime.utcnow()
+                timestamp=datetime.utcnow(),
             )
             session.add(request)
             session.commit()
@@ -109,16 +112,13 @@ class Database:
             if user.subscription_type != 'none' and user.subscription_end:
                 has_subscription = user.subscription_end > datetime.utcnow()
                 if has_subscription:
-                    subscription_info = {
-                        'type': user.subscription_type,
-                        'end': user.subscription_end
-                    }
+                    subscription_info = {'type': user.subscription_type, 'end': user.subscription_end}
 
             return {
                 'free_requests_left': user.free_requests_left,
                 'has_subscription': has_subscription,
                 'subscription_info': subscription_info,
-                'total_requests': total_requests
+                'total_requests': total_requests,
             }
         except Exception as e:
             logger.error(f"Error in get_user_stats: {e}")
@@ -140,8 +140,9 @@ class Database:
             logger.error(f"Error in activate_subscription: {e}")
             return False
 
-    def add_paid_request(self, session, user_id, request_type, amount, currency='RUB',
-                         payment_id=None, phone_number=None, email=None):
+    def add_paid_request(
+        self, session, user_id, request_type, amount, currency='RUB', payment_id=None, phone_number=None, email=None
+    ):
         try:
             paid_request = PaidRequest(
                 user_id=user_id,
@@ -153,12 +154,14 @@ class Database:
                 used=False,
                 phone_number=phone_number,
                 email=email,
-                receipt_issued=False
+                receipt_issued=False,
             )
             session.add(paid_request)
             session.commit()
             session.refresh(paid_request)
-            logger.info(f"Paid request added for user {user_id}, type: {request_type}, amount: {amount}, id: {paid_request.id}")
+            logger.info(
+                f"Paid request added for user {user_id}, type: {request_type}, amount: {amount}, id: {paid_request.id}"
+            )
             return paid_request
         except Exception as e:
             session.rollback()
@@ -170,7 +173,7 @@ class Database:
             query = session.query(PaidRequest).filter(
                 PaidRequest.user_id == user_id,
                 PaidRequest.used == False,
-                PaidRequest.request_type.in_(['text', 'file'])
+                PaidRequest.request_type.in_(['text', 'file']),
             )
             if request_type:
                 query = query.filter(PaidRequest.request_type == request_type)
@@ -205,18 +208,24 @@ class Database:
 
     def get_pending_receipts(self, session):
         try:
-            return session.query(PaidRequest).filter(
-                PaidRequest.receipt_issued == False
-            ).order_by(PaidRequest.paid_at.desc()).all()
+            return (
+                session.query(PaidRequest)
+                .filter(PaidRequest.receipt_issued == False)
+                .order_by(PaidRequest.paid_at.desc())
+                .all()
+            )
         except Exception as e:
             logger.error(f"Error getting pending receipts: {e}")
             return []
 
     def get_issued_receipts(self, session):
         try:
-            return session.query(PaidRequest).filter(
-                PaidRequest.receipt_issued == True
-            ).order_by(PaidRequest.paid_at.desc()).all()
+            return (
+                session.query(PaidRequest)
+                .filter(PaidRequest.receipt_issued == True)
+                .order_by(PaidRequest.paid_at.desc())
+                .all()
+            )
         except Exception as e:
             logger.error(f"Error getting issued receipts: {e}")
             return []

@@ -1,4 +1,5 @@
 import os
+
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -14,11 +15,11 @@ CURRENCY = "RUB"
 
 # Цены в копейках
 PRICES = {
-    'question_text': 20000,      # 200 руб
-    'question_file': 30000,      # 300 руб
+    'question_text': 20000,  # 200 руб
+    'question_file': 30000,  # 300 руб
     'subscription_2weeks': 100000,  # 1000 руб
     'subscription_1month': 150000,  # 1500 руб
-    'subscription_3months': 300000, # 3000 руб
+    'subscription_3months': 300000,  # 3000 руб
 }
 
 # ID администраторов

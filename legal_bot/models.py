@@ -1,9 +1,11 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, Text, ForeignKey
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import relationship
 from datetime import datetime
 
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import relationship
+
 Base = declarative_base()
+
 
 class User(Base):
     __tablename__ = 'users'
@@ -29,6 +31,7 @@ class User(Base):
     def __repr__(self):
         return f"<User(id={self.id}, user_id={self.user_id}, username={self.username})>"
 
+
 class UserRequest(Base):
     __tablename__ = 'user_requests'
 
@@ -48,6 +51,7 @@ class UserRequest(Base):
     def __repr__(self):
         return f"<UserRequest(id={self.id}, user_id={self.user_id}, timestamp={self.timestamp})>"
 
+
 class PaidRequest(Base):
     __tablename__ = 'paid_requests'
 
@@ -58,7 +62,7 @@ class PaidRequest(Base):
     currency = Column(String(3), default='RUB')
     payment_id = Column(String(100))  # ID платежа в YooKassa
     paid_at = Column(DateTime, default=datetime.utcnow)
-    used = Column(Boolean, default=False)       # для отдельных вопросов – использован ли
+    used = Column(Boolean, default=False)  # для отдельных вопросов – использован ли
     used_at = Column(DateTime, nullable=True)
     request_id = Column(Integer, ForeignKey('user_requests.id'), nullable=True)
 

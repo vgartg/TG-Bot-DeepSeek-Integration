@@ -4,6 +4,7 @@ Sets safe defaults for env vars and isolates the SQLite database to an
 in-memory store so importing `legal_bot.database` never touches a real DB
 file during test collection.
 """
+
 import os
 
 os.environ.setdefault("BOT_TOKEN", "test-token")
