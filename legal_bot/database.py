@@ -1,7 +1,7 @@
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, scoped_session
-from models import Base, User, UserRequest, PaidRequest
-from config import DATABASE_URL
+from .models import Base, User, UserRequest, PaidRequest
+from .config import DATABASE_URL
 import logging
 from datetime import datetime, timedelta
 
@@ -53,13 +53,12 @@ class Database:
             if not user:
                 return False
 
-            # Проверяем активную подписку
             has_subscription = False
             if user.subscription_type != 'none' and user.subscription_end:
                 has_subscription = user.subscription_end > datetime.utcnow()
 
             if has_subscription:
-                return True  # Подписка активна, списание не требуется
+                return True
 
             if request_type == 'free':
                 if user.free_requests_left > 0:
@@ -68,7 +67,6 @@ class Database:
                     return True
                 return False
             else:
-                # Для платных вопросов - проверяем наличие оплаченных вопросов
                 return True
         except Exception as e:
             session.rollback()
@@ -142,14 +140,8 @@ class Database:
             logger.error(f"Error in activate_subscription: {e}")
             return False
 
-    # ---------- Методы для работы с оплаченными запросами ----------
-
     def add_paid_request(self, session, user_id, request_type, amount, currency='RUB',
                          payment_id=None, phone_number=None, email=None):
-        """
-        Добавляет оплаченный запрос (вопрос или подписку) в базу данных.
-        Возвращает объект PaidRequest.
-        """
         try:
             paid_request = PaidRequest(
                 user_id=user_id,
@@ -174,12 +166,11 @@ class Database:
             return None
 
     def get_unused_paid_requests(self, session, user_id, request_type=None):
-        """Получает неиспользованные оплаченные вопросы пользователя (для использования)."""
         try:
             query = session.query(PaidRequest).filter(
                 PaidRequest.user_id == user_id,
                 PaidRequest.used == False,
-                PaidRequest.request_type.in_(['text', 'file'])  # только вопросы, не подписки
+                PaidRequest.request_type.in_(['text', 'file'])
             )
             if request_type:
                 query = query.filter(PaidRequest.request_type == request_type)
@@ -189,7 +180,6 @@ class Database:
             return []
 
     def use_paid_request(self, session, paid_request_id, request_id=None):
-        """Отмечает оплаченный вопрос как использованный."""
         try:
             paid_request = session.query(PaidRequest).filter(PaidRequest.id == paid_request_id).first()
             if paid_request and paid_request.request_type in ['text', 'file']:
@@ -207,17 +197,13 @@ class Database:
             return False
 
     def get_paid_request_by_id(self, session, paid_request_id):
-        """Получает оплаченный запрос по ID."""
         try:
             return session.query(PaidRequest).filter(PaidRequest.id == paid_request_id).first()
         except Exception as e:
             logger.error(f"Error getting paid request by id: {e}")
             return None
 
-    # ---------- Методы для админ‑панели (чеки) ----------
-
     def get_pending_receipts(self, session):
-        """Получить все платежи с невыставленными чеками (receipt_issued=False)."""
         try:
             return session.query(PaidRequest).filter(
                 PaidRequest.receipt_issued == False
@@ -227,7 +213,6 @@ class Database:
             return []
 
     def get_issued_receipts(self, session):
-        """Получить все платежи с выставленными чеками (receipt_issued=True)."""
         try:
             return session.query(PaidRequest).filter(
                 PaidRequest.receipt_issued == True
@@ -237,7 +222,6 @@ class Database:
             return []
 
     def mark_receipt_issued(self, session, paid_request_id):
-        """Отметить чек как сформированный."""
         try:
             paid_request = session.query(PaidRequest).filter(PaidRequest.id == paid_request_id).first()
             if paid_request:
@@ -252,7 +236,6 @@ class Database:
             return False
 
     def count_pending_receipts(self, session):
-        """Количество неготовых чеков."""
         try:
             return session.query(PaidRequest).filter(PaidRequest.receipt_issued == False).count()
         except Exception as e:
@@ -260,5 +243,4 @@ class Database:
             return 0
 
 
-# Глобальный экземпляр базы данных
 db = Database()

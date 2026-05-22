@@ -1,37 +1,44 @@
 import logging
+import os
+import json
+import tempfile
+import asyncio
+import traceback
+from datetime import datetime, timedelta
+
 from telegram import Update, BotCommand, LabeledPrice
 from telegram.ext import (
     Application, CommandHandler, CallbackQueryHandler,
     MessageHandler, filters, ContextTypes, ConversationHandler,
     PreCheckoutQueryHandler
 )
-from telegram.error import BadRequest, TimedOut, NetworkError
-import os
-from datetime import datetime, timedelta
-import traceback
-import json
-import tempfile
-import asyncio
-import time
+from telegram.error import BadRequest
 
-from config import (
+from .config import (
     BOT_TOKEN, WELCOME_MESSAGE, INSTRUCTION_TEXT, OFFER_TEXT, PRIVACY_TEXT,
     PROVIDER_TOKEN, CURRENCY, PRICES, RETURN_MONEY_TEXT, ADMIN_IDS
 )
-from database import db
-from keyboards import *
-from deepseek_api import deepseek_api
-from utils import generate_qr_code, format_answer, check_file_type, get_file_size_mb
-from models import User
+from .database import db
+from .keyboards import (
+    get_main_menu, get_ask_question_menu, get_admin_menu,
+    get_pending_receipt_control, get_issued_receipt_control,
+    get_instruction_menu, get_instruction_view_menu,
+    get_free_questions_menu, get_paid_questions_menu,
+    get_subscription_menu, get_offer_menu, get_privacy_menu,
+    get_return_money_menu, get_offer_view_menu,
+    get_share_after_link_menu, get_share_after_qr_menu,
+    get_share_initial_menu, get_cancel_button,
+)
+from .deepseek_api import deepseek_api
+from .utils import generate_qr_code, format_answer, check_file_type, get_file_size_mb
+from .models import User
 
-# Настройка логирования
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
 
-# Состояния для ConversationHandler
 WAITING_QUESTION, WAITING_FILE_QUESTION = range(2)
 
 
@@ -89,7 +96,7 @@ class LegalBot:
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         user = update.effective_user
         session = db.get_session()
-        db_user = db.get_or_create_user(
+        db.get_or_create_user(
             session,
             user.id,
             user.username,
@@ -131,7 +138,6 @@ class LegalBot:
         has_subscription = user_stats['has_subscription'] if user_stats else False
         kb_main = await self._get_main_menu_kb(user_id)
 
-        # ----- Главное меню и навигация -----
         if query.data == 'main_menu':
             await query.message.reply_text("Главное меню:", reply_markup=kb_main)
 
@@ -267,7 +273,6 @@ class LegalBot:
                     reply_markup=get_share_after_qr_menu()
                 )
 
-        # ----- Подписка: выбор типа вопроса -----
         elif query.data == 'ask_question':
             await self.safe_edit_message(
                 query,
@@ -276,7 +281,6 @@ class LegalBot:
             )
 
         elif query.data == 'sub_text':
-            # Активная подписка – текстовый вопрос без ограничений
             context.user_data['question_type'] = 'subscription'
             context.user_data['waiting_for'] = 'text'
             await self.safe_edit_message(
@@ -288,7 +292,6 @@ class LegalBot:
             return WAITING_QUESTION
 
         elif query.data == 'sub_file':
-            # Активная подписка – вопрос с файлом без ограничений
             context.user_data['question_type'] = 'subscription'
             context.user_data['waiting_for'] = 'file'
             context.user_data['files'] = []
@@ -302,14 +305,11 @@ class LegalBot:
             )
             return WAITING_FILE_QUESTION
 
-        # ----- Покупка подписки -----
         elif query.data.startswith('sub_'):
-            # Защита: если сюда случайно попали sub_text/sub_file – игнорируем
             if query.data in ['sub_text', 'sub_file']:
                 logger.warning(f"Попытка обработать {query.data} как покупку подписки – пропущено")
                 return
 
-            # Проверяем, есть ли уже активная подписка
             if has_subscription:
                 await query.message.reply_text(
                     "⏳ У Вас уже есть активная подписка. Вы не можете оформить новую, пока действует текущая.",
@@ -317,28 +317,21 @@ class LegalBot:
                 )
                 return
 
-            # Определяем тип подписки
             if query.data == 'sub_2weeks':
                 payload = 'subscription_2weeks'
                 title = "Подписка на 2 недели"
                 description = "Безлимитный доступ на 2 недели"
                 price = PRICES['subscription_2weeks']
-                sub_type = '2weeks'
-                days = 14
             elif query.data == 'sub_1month':
                 payload = 'subscription_1month'
                 title = "Подписка на 1 месяц"
                 description = "Безлимитный доступ на 1 месяц"
                 price = PRICES['subscription_1month']
-                sub_type = '1month'
-                days = 30
             elif query.data == 'sub_3months':
                 payload = 'subscription_3months'
                 title = "Подписка на 3 месяца"
                 description = "Безлимитный доступ на 3 месяца"
                 price = PRICES['subscription_3months']
-                sub_type = '3months'
-                days = 90
             else:
                 return
 
@@ -346,7 +339,6 @@ class LegalBot:
             username = user.username
             need_phone = (username is None or username.strip() == "")
 
-            # Отправляем инвойс
             try:
                 await context.bot.send_invoice(
                     chat_id=user_id,
@@ -368,7 +360,6 @@ class LegalBot:
                     reply_markup=kb_main
                 )
 
-        # ----- Бесплатные / платные вопросы (без подписки) -----
         elif query.data in ['free_text', 'paid_text']:
             is_free = query.data == 'free_text'
             user_id = query.from_user.id
@@ -398,7 +389,7 @@ class LegalBot:
                 )
                 return WAITING_QUESTION
 
-            else:  # paid_text
+            else:
                 session = db.get_session()
                 paid_requests = db.get_unused_paid_requests(session, user_id, 'text')
                 user_stats = db.get_user_stats(session, user_id)
@@ -422,7 +413,6 @@ class LegalBot:
                     )
                     return WAITING_QUESTION
                 else:
-                    # Нет оплаченных вопросов и нет подписки – предложить оплатить
                     payload = 'question_text'
                     title = "Обычный вопрос"
                     description = "Обычный вопрос без загрузки документов"
@@ -487,7 +477,7 @@ class LegalBot:
                 )
                 return WAITING_FILE_QUESTION
 
-            else:  # paid_file
+            else:
                 session = db.get_session()
                 paid_requests = db.get_unused_paid_requests(session, user_id, 'file')
                 user_stats = db.get_user_stats(session, user_id)
@@ -546,7 +536,6 @@ class LegalBot:
                             reply_markup=kb
                         )
 
-        # ----- АДМИН ПАНЕЛЬ -----
         elif query.data == 'admin_panel':
             if not self._is_admin(user_id):
                 await query.message.reply_text("У Вас нет доступа к этой панели.", reply_markup=kb_main)
@@ -810,13 +799,11 @@ class LegalBot:
             email = order_info.email if order_info else None
             payment_id = payment.provider_payment_charge_id
 
-            # Подтверждение пользователю
             await update.message.reply_text(
                 f"✅ Платеж успешно завершен!\n\n"
                 f"💰 Сумма: {payment.total_amount / 100} {payment.currency}\n"
             )
 
-            # ----- Подписка -----
             if payload.startswith('subscription_'):
                 if payload == 'subscription_2weeks':
                     sub_type, days = '2weeks', 14
@@ -832,14 +819,12 @@ class LegalBot:
                     amount = 0
 
                 session = db.get_session()
-                # Активируем подписку
                 success = db.activate_subscription(session, user_id, sub_type, days)
 
-                # Сохраняем платёж в PaidRequest для админ-панели
                 paid_request = db.add_paid_request(
                     session,
                     user_id,
-                    'subscription',  # тип subscription
+                    'subscription',
                     amount,
                     CURRENCY,
                     payment_id,
@@ -849,7 +834,6 @@ class LegalBot:
                 session.close()
 
                 if success and paid_request:
-                    # Обновляем меню пользователя – теперь у него подписка
                     kb = await self._get_main_menu_kb(user_id)
                     await update.message.reply_text(
                         f"🎉 Подписка успешно активирована!\n\n"
@@ -858,7 +842,6 @@ class LegalBot:
                         f"Выберите дальнейшее действие:",
                         reply_markup=kb
                     )
-                    # Уведомляем админов
                     await self._notify_admins_about_payment(
                         context, user_id, amount, 'subscription', payment_id, phone_number, email
                     )
@@ -868,7 +851,6 @@ class LegalBot:
                         reply_markup=await self._get_main_menu_kb(user_id)
                     )
 
-            # ----- Отдельный вопрос (текст или файл) -----
             elif payload in ['question_text', 'question_file']:
                 request_type = 'text' if payload == 'question_text' else 'file'
                 amount = PRICES[payload]
@@ -893,7 +875,6 @@ class LegalBot:
                     session.close()
                     return
 
-                # Сохраняем в контекст для использования вопроса
                 context.user_data['paid_request_id'] = paid_request.id
                 context.user_data['question_type'] = 'paid'
                 context.user_data['waiting_for'] = request_type
@@ -909,12 +890,10 @@ class LegalBot:
                     reply_markup=get_cancel_button()
                 )
 
-                # Уведомляем админов
                 await self._notify_admins_about_payment(
                     context, user_id, amount, request_type, payment_id, phone_number, email
                 )
 
-                # Возвращаем состояние для ConversationHandler
                 return WAITING_QUESTION if request_type == 'text' else WAITING_FILE_QUESTION
 
         except Exception as e:
@@ -958,7 +937,7 @@ class LegalBot:
             except Exception as e:
                 logger.error(f"Failed to notify admin {admin_id}: {e}")
 
-    # ---------- Обработчики текстовых вопросов и файлов (ПОЛНОСТЬЮ ВОССТАНОВЛЕНЫ) ----------
+    # ---------- Обработчики текстовых вопросов и файлов ----------
 
     async def handle_text_question(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обработка текстового вопроса"""
@@ -973,7 +952,6 @@ class LegalBot:
 
         has_subscription = user_stats['has_subscription'] if user_stats else False
 
-        # Бесплатный вопрос без подписки
         if question_type == 'free' and not has_subscription:
             if user_stats and user_stats['free_requests_left'] <= 0:
                 await update.message.reply_text(
@@ -984,13 +962,11 @@ class LegalBot:
                 session.close()
                 return ConversationHandler.END
 
-            # Уменьшаем количество бесплатных запросов
             user = session.query(User).filter(User.user_id == user_id).first()
             if user and user.free_requests_left > 0:
                 user.free_requests_left -= 1
                 session.commit()
 
-        # Платный вопрос без подписки и без сохранённого paid_request_id
         elif question_type == 'paid' and not has_subscription and not paid_request_id:
             paid_requests = db.get_unused_paid_requests(session, user_id, 'text')
             if not paid_requests:
@@ -1028,7 +1004,6 @@ class LegalBot:
                 session.close()
                 return ConversationHandler.END
 
-            # Сохраняем запрос в БД
             db_request = db.add_request(
                 session,
                 user_id,
@@ -1038,7 +1013,6 @@ class LegalBot:
                 False
             )
 
-            # Если это платный вопрос, отмечаем его как использованный
             if question_type == 'paid' and paid_request_id:
                 db.use_paid_request(session, paid_request_id, db_request.id if db_request else None)
                 if 'paid_request_id' in context.user_data:
@@ -1046,7 +1020,6 @@ class LegalBot:
 
             session.close()
 
-            # Отправляем ответ частями
             answer_parts = format_answer(result['answer'])
             for i, part in enumerate(answer_parts):
                 if i == 0:
@@ -1054,7 +1027,6 @@ class LegalBot:
                 else:
                     await update.message.reply_text(part)
 
-            # Обновляем статистику и показываем меню
             session = db.get_session()
             user_stats = db.get_user_stats(session, user_id)
             session.close()
@@ -1091,7 +1063,7 @@ class LegalBot:
                     f"Детали ошибки: {str(e)[:500]}\n\n"
                     f"Пожалуйста, попробуйте позже или обратитесь в поддержку."
                 )
-            except:
+            except Exception:
                 pass
             session.close()
 
@@ -1143,9 +1115,8 @@ class LegalBot:
 
             context.user_data['files'].append(file_path)
 
-            await loading_msg.edit_text(f"📤 Загружаю файл...")
+            await loading_msg.edit_text("📤 Загружаю файл...")
 
-            # Пытаемся загрузить в DeepSeek API
             deepseek_file_id = None
             try:
                 deepseek_file_id = deepseek_api.upload_file_to_deepseek(file_path)
@@ -1165,7 +1136,6 @@ class LegalBot:
                 logger.error(f"Ошибка загрузки в DeepSeek: {upload_error}")
                 deepseek_file_id = None
 
-            # Резервный метод – локальное извлечение текста
             if not deepseek_file_id:
                 await loading_msg.edit_text(f"⏳ Пробую резервный метод для файла '{file_name}'...")
                 try:
@@ -1193,7 +1163,6 @@ class LegalBot:
                 except Exception as extract_error:
                     logger.error(f"Ошибка при локальном извлечении текста: {extract_error}")
 
-                # Если ничего не сработало
                 await loading_msg.edit_text(
                     f"⚠️ Файл '{file_name}' сохранён, но не удалось обработать.\n"
                     f"Загружено файлов: {len(context.user_data['files'])}\n\n"
@@ -1201,7 +1170,6 @@ class LegalBot:
                 )
                 return WAITING_FILE_QUESTION
 
-            # Успешная загрузка в DeepSeek
             await loading_msg.edit_text(
                 f"✅ Файл '{file_name}' успешно загружен!\n"
                 f"Загружено файлов: {len(context.user_data['files'])}\n"
@@ -1220,7 +1188,7 @@ class LegalBot:
                 await error_msg.edit_text(
                     "Пожалуйста, попробуйте загрузить файл еще раз."
                 )
-            except:
+            except Exception:
                 pass
             return WAITING_FILE_QUESTION
 
@@ -1259,7 +1227,6 @@ class LegalBot:
                             os.remove(file_path)
                     session.close()
                     return ConversationHandler.END
-                # Списываем бесплатный вопрос
                 user = session.query(User).filter(User.user_id == user_id).first()
                 if user and user.free_requests_left > 0:
                     user.free_requests_left -= 1
@@ -1328,7 +1295,6 @@ class LegalBot:
                 timeout=180
             )
 
-            # Удаляем временные файлы
             for file_path in context.user_data.get('files', []):
                 if os.path.exists(file_path):
                     os.remove(file_path)
@@ -1369,8 +1335,6 @@ class LegalBot:
             user_stats = db.get_user_stats(session, user_id)
             session.close()
 
-            free_left = user_stats['free_requests_left'] if user_stats else 0
-
             if has_subscription or question_type == 'subscription':
                 await update.message.reply_text(
                     f"✅ Анализ завершен!\n\n"
@@ -1406,7 +1370,7 @@ class LegalBot:
                     f"Детали: {str(e)[:300]}\n\n"
                     f"Пожалуйста, попробуйте позже."
                 )
-            except:
+            except Exception:
                 pass
             session.close()
 
@@ -1433,7 +1397,6 @@ class LegalBot:
                 )
             session.close()
 
-        keys_to_keep = []
         for key in list(context.user_data.keys()):
             if not key.startswith('paid_'):
                 context.user_data[key] = None
@@ -1457,7 +1420,7 @@ class LegalBot:
                 for file_path in context.user_data['files']:
                     if os.path.exists(file_path):
                         os.remove(file_path)
-        except:
+        except Exception:
             pass
         if update and update.effective_message:
             try:
@@ -1466,7 +1429,7 @@ class LegalBot:
                     f"❌ Произошла ошибка:\n\nДетали: {str(context.error)[:500]}\n\nПожалуйста, попробуйте снова или обратитесь в поддержку.",
                     reply_markup=kb
                 )
-            except:
+            except Exception:
                 pass
 
     async def handle_voice(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1537,7 +1500,6 @@ class LegalBot:
         self.application.add_handler(CommandHandler("start", self.start))
         self.application.add_handler(CommandHandler("menu", self.menu_command))
 
-        # Обработчик всех callback, кроме тех, что уже ушли в ConversationHandler
         self.application.add_handler(CallbackQueryHandler(self.handle_menu, pattern='^(?!free_text|free_file|paid_text|paid_file|sub_text|sub_file).*$'))
 
         self.application.add_handler(conv_handler)
@@ -1593,6 +1555,7 @@ class LegalBot:
 def main():
     bot = LegalBot()
     bot.run()
+
 
 if __name__ == '__main__':
     main()

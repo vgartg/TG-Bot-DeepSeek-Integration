@@ -1,33 +1,26 @@
-import openai
-from openai import OpenAI
 import logging
-from typing import List, Optional, Dict, Any
-from config import DEEPSEEK_API_KEY, DEEPSEEK_API_BASE, DEEPSEEK_MODEL, SYSTEM_PROMPT
-import base64
-import mimetypes
 import os
+import mimetypes
+from typing import List, Optional, Dict
+
 import docx
 import PyPDF2
 import pdfplumber
-from PIL import Image
-import io
-import json
-import tempfile
-import time
 import requests
+from openai import OpenAI
+
+from .config import DEEPSEEK_API_KEY, DEEPSEEK_API_BASE, DEEPSEEK_MODEL, SYSTEM_PROMPT
 
 logger = logging.getLogger(__name__)
 
 class DeepSeekAPI:
     def __init__(self):
-        # Инициализируем клиент с увеличенными таймаутами
         self.client = OpenAI(
             api_key=DEEPSEEK_API_KEY,
             base_url=DEEPSEEK_API_BASE,
-            timeout=60.0  # Увеличиваем общий таймаут до 60 секунд
+            timeout=60.0
         )
 
-        # Для загрузки файлов нужен отдельный клиент с заголовками
         self.api_key = DEEPSEEK_API_KEY
         self.model = DEEPSEEK_MODEL
         self.base_url = DEEPSEEK_API_BASE
@@ -36,7 +29,6 @@ class DeepSeekAPI:
         """Определяет MIME тип файла"""
         mime_type, _ = mimetypes.guess_type(file_path)
         if not mime_type:
-            # Определяем по расширению
             ext = os.path.splitext(file_path)[1].lower()
             if ext == '.pdf':
                 return 'application/pdf'
@@ -49,21 +41,15 @@ class DeepSeekAPI:
         return mime_type
 
     def upload_file_to_deepseek(self, file_path: str) -> Optional[str]:
-        """
-        Загружает файл в DeepSeek API и возвращает file_id
-        """
+        """Загружает файл в DeepSeek API и возвращает file_id."""
         try:
-            import requests
-
-            # URL для загрузки файлов (из документации DeepSeek)
-            upload_url = "https://api.deepseek.com/files"
+            upload_url = f"{self.base_url}/files"
 
             headers = {
                 'Authorization': f'Bearer {self.api_key}',
                 'Accept': 'application/json'
             }
 
-            # Определяем MIME тип
             mime_type = self.get_mime_type(file_path)
             file_name = os.path.basename(file_path)
 
@@ -88,12 +74,11 @@ class DeepSeekAPI:
             return None
 
     def extract_text_from_file(self, file_path: str) -> tuple[str, bool]:
-        """Извлекает текст из файла локально (резервный метод)"""
+        """Извлекает текст из файла локально (резервный метод)."""
         try:
             ext = os.path.splitext(file_path)[1].lower()
-            file_name = os.path.basename(file_path)
 
-            if ext in ['.txt']:
+            if ext == '.txt':
                 with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
                     text = f.read()
                 success = len(text.strip()) > 0
@@ -117,7 +102,7 @@ class DeepSeekAPI:
                             page_text = page.extract_text()
                             if page_text:
                                 text.append(page_text)
-                except:
+                except Exception:
                     with open(file_path, 'rb') as f:
                         pdf_reader = PyPDF2.PdfReader(f)
                         for page in pdf_reader.pages:
@@ -138,12 +123,9 @@ class DeepSeekAPI:
                      file_texts: Optional[List[Dict]] = None,
                      use_search: bool = False,
                      use_deepthink: bool = True) -> dict:
-        """
-        Основная точка входа для обработки запросов
-        """
+        """Основная точка входа для обработки запросов."""
         try:
             if file_texts and len(file_texts) > 0:
-                # Если есть тексты файлов, формируем запрос с ними
                 files_content = ""
                 for file_data in file_texts:
                     filename = file_data.get('filename', 'file')
@@ -158,7 +140,6 @@ class DeepSeekAPI:
 
 Проанализируйте предоставленные документы и дайте юридически обоснованный ответ на вопрос пользователя."""
             else:
-                # Простой текстовый запрос
                 full_query = f"{SYSTEM_PROMPT}\n\nВопрос пользователя: {user_query}"
 
             messages = []
@@ -175,18 +156,16 @@ class DeepSeekAPI:
             })
 
             if use_search:
-                # Добавляем инструкцию для поиска
                 for msg in messages:
                     if msg["role"] == "user" and isinstance(msg["content"], str):
                         msg["content"] += "\n\nИспользуй актуальную информацию из интернета для ответа, если это необходимо."
 
-            # Увеличиваем таймаут для запроса
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=messages,
                 max_tokens=4000,
                 temperature=0.3,
-                timeout=45.0  # Увеличиваем таймаут до 45 секунд
+                timeout=45.0
             )
 
             answer = response.choices[0].message.content
@@ -202,5 +181,5 @@ class DeepSeekAPI:
             logger.error(f"Error processing query: {e}", exc_info=True)
             return {"error": f"Ошибка при обработке запроса: {str(e)}"}
 
-# Глобальный экземпляр API
+
 deepseek_api = DeepSeekAPI()

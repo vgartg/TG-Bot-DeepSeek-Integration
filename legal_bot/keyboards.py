@@ -5,10 +5,8 @@ def get_main_menu(is_admin=False, has_subscription=False):
     keyboard = []
 
     if has_subscription:
-        # При активной подписке — одна кнопка «Задать вопрос»
         keyboard.append([InlineKeyboardButton("❓ Задать вопрос", callback_data='ask_question')])
     else:
-        # Без подписки — отдельно бесплатные и платные
         keyboard.append([InlineKeyboardButton("🆓 Бесплатные вопросы", callback_data='menu_free')])
         keyboard.append([InlineKeyboardButton("💰 Платные вопросы", callback_data='menu_paid')])
 
@@ -55,7 +53,6 @@ def get_pending_receipt_control(paid_request_id, has_next, has_prev):
         nav_buttons.append(InlineKeyboardButton("⏩ Следующий", callback_data='admin_next_pending'))
     if nav_buttons:
         keyboard.append(nav_buttons)
-    # Только кнопка возврата в админ-панель, без «К списку неготовых»
     keyboard.append([InlineKeyboardButton("« Админ панель", callback_data='admin_panel')])
     return InlineKeyboardMarkup(keyboard)
 
@@ -70,7 +67,6 @@ def get_issued_receipt_control(has_next, has_prev):
         nav_buttons.append(InlineKeyboardButton("⏩ Следующий", callback_data='admin_next_issued'))
     if nav_buttons:
         keyboard.append(nav_buttons)
-    # Только кнопка возврата в админ-панель
     keyboard.append([InlineKeyboardButton("« Админ панель", callback_data='admin_panel')])
     return InlineKeyboardMarkup(keyboard)
 

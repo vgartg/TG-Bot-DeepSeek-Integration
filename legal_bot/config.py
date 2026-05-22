@@ -22,7 +22,8 @@ PRICES = {
 }
 
 # ID администраторов
-ADMIN_IDS = [2122883046, 706269846]
+_admin_ids_env = os.getenv('ADMIN_IDS', '')
+ADMIN_IDS = [int(x) for x in _admin_ids_env.split(',') if x.strip().isdigit()] or [2122883046, 706269846]
 
 # Тексты
 WELCOME_MESSAGE = """Пожалуйста, используйте меню для навигации:"""
